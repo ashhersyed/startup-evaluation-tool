@@ -1,0 +1,13 @@
+{
+  "buildCommand": "pnpm build",
+  "outputDirectory": "dist",
+  "env": {
+    "BEEHIIV_API_KEY": "@beehiiv_api_key",
+    "BEEHIIV_PUB_ID": "@beehiiv_pub_id"
+  },
+  "functions": {
+    "server/index.ts": {
+      "runtime": "nodejs18.x"
+    }
+  }
+}

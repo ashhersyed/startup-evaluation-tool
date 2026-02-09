@@ -10,7 +10,6 @@ import EmailGate from '../components/EmailGate'
 export default function Home() {
   const [, setLocation] = useLocation()
   const [email, setEmail] = useState('')
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [showGate, setShowGate] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -52,14 +51,12 @@ export default function Home() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="flex-1"
-              disabled={isSubmitting}
             />
             <Button
               type="submit"
-              disabled={isSubmitting}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
-              {isSubmitting ? 'Loading...' : 'Get Started'}
+              Get Started
               <ArrowRight className="w-4 h-4 ml-2" />
             </Button>
           </form>
