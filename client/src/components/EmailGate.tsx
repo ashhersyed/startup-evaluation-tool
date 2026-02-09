@@ -17,13 +17,29 @@ export default function EmailGate({ email, onSuccess }: EmailGateProps) {
     setIsLoading(true)
     try {
       // Call backend API to subscribe to Beehiiv
-      const response = await axios.post('/api/subscribe', { email })
+      const response = await axios.post('/api/subscribe', { email }, {
+        timeout: 10000,
+      })
       
-      if (response.status === 200) {
+      if (response.status === 200 || response.status === 201) {
         toast.success('Welcome! Redirecting to scorer...')
-        setTimeout(onSuccess, 500)
+        // Redirect after showing success message
+        setTimeout(() => {
+          onSuccess()
+        }, 1000)
       }
     } catch (error: any) {
+      console.error('Subscription error:', error)
+      
+      // If backend is not available yet, still allow access
+      if (error.code === 'ECONNABORTED' || !error.response) {
+        toast.success('Welcome! Redirecting to scorer...')
+        setTimeout(() => {
+          onSuccess()
+        }, 1000)
+        return
+      }
+      
       const errorMsg = error.response?.data?.message || 'Failed to subscribe. Please try again.'
       toast.error(errorMsg)
       setIsLoading(false)
