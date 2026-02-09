@@ -2,10 +2,8 @@ import { useState } from 'react'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
-import { ArrowRight, Zap } from 'lucide-react'
+import { ArrowRight, Zap, Loader2 } from 'lucide-react'
 import { toast } from 'sonner'
-import axios from 'axios'
-import { Loader2 } from 'lucide-react'
 
 export default function Home() {
   const [email, setEmail] = useState('')
