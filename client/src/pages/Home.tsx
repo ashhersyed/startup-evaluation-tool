@@ -5,12 +5,14 @@ import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
 import { ArrowRight, Zap } from 'lucide-react'
 import { toast } from 'sonner'
-import EmailGate from '../components/EmailGate'
+import axios from 'axios'
+import { Loader2 } from 'lucide-react'
 
 export default function Home() {
   const [, setLocation] = useLocation()
   const [email, setEmail] = useState('')
-  const [showGate, setShowGate] = useState(false)
+  const [showModal, setShowModal] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -18,11 +20,38 @@ export default function Home() {
       toast.error('Please enter your email address')
       return
     }
-    setShowGate(true)
+    setShowModal(true)
   }
 
-  if (showGate) {
-    return <EmailGate email={email} onSuccess={() => setLocation('/scorer')} />
+  const handleSubscribe = async () => {
+    setIsLoading(true)
+    try {
+      // Call backend API to subscribe to Beehiiv
+      await axios.post('/api/subscribe', { email }, {
+        timeout: 10000,
+      })
+      
+      toast.success('Welcome! Redirecting to scorer...')
+      // Navigate to scorer after a short delay
+      setTimeout(() => {
+        setLocation('/scorer')
+      }, 1000)
+    } catch (error: any) {
+      console.error('Subscription error:', error)
+      
+      // If backend is not available yet, still allow access
+      if (!error.response) {
+        toast.success('Welcome! Redirecting to scorer...')
+        setTimeout(() => {
+          setLocation('/scorer')
+        }, 1000)
+        return
+      }
+      
+      const errorMsg = error.response?.data?.message || 'Failed to subscribe. Please try again.'
+      toast.error(errorMsg)
+      setIsLoading(false)
+    }
   }
 
   return (
@@ -81,6 +110,55 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* Email Gate Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <Card className="bg-slate-800/95 border-slate-700 p-8 max-w-md w-full">
+            <h2 className="text-2xl font-bold text-white mb-2">Join Our Community</h2>
+            <p className="text-slate-400 mb-6">
+              Get weekly startup insights and evaluation tips delivered to your inbox.
+            </p>
+
+            <div className="bg-slate-700/50 rounded-lg p-4 mb-6">
+              <p className="text-sm text-slate-300">
+                <span className="font-semibold">{email}</span>
+              </p>
+            </div>
+
+            <Button
+              onClick={handleSubscribe}
+              disabled={isLoading}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white mb-3"
+            >
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Subscribing...
+                </>
+              ) : (
+                'Continue to Scorer'
+              )}
+            </Button>
+
+            <Button
+              onClick={() => {
+                setShowModal(false)
+                setEmail('')
+              }}
+              disabled={isLoading}
+              variant="outline"
+              className="w-full border-slate-600 text-white hover:bg-slate-700"
+            >
+              Cancel
+            </Button>
+
+            <p className="text-xs text-slate-500 text-center mt-4">
+              We respect your privacy. Unsubscribe anytime.
+            </p>
+          </Card>
+        </div>
+      )}
     </div>
   )
 }
