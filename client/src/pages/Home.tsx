@@ -21,24 +21,27 @@ export default function Home() {
     setShowModal(true)
   }
 
-  const handleSubscribe = async () => {
+  const handleSubscribe = () => {
+    console.log('handleSubscribe called')
     setIsLoading(true)
     toast.success('Welcome! Redirecting to scorer...')
     
     // Redirect immediately
-    setTimeout(() => {
-      window.location.href = '/scorer'
-    }, 500)
+    console.log('Redirecting to /scorer')
+    window.location.href = '/scorer'
     
     // Subscribe in the background (don't wait for response)
-    try {
-      await axios.post('/api/subscribe', { email }, {
-        timeout: 5000,
-      })
-    } catch (error) {
-      // Silently fail - user is already redirected
-      console.error('Subscription error:', error)
-    }
+    setTimeout(() => {
+      try {
+        axios.post('/api/subscribe', { email }, {
+          timeout: 5000,
+        }).catch((error) => {
+          console.error('Subscription error:', error)
+        })
+      } catch (error) {
+        console.error('Subscription error:', error)
+      }
+    }, 1000)
   }
 
   return (
