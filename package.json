@@ -13,6 +13,7 @@
     "start": "node dist/server/index.js"
   },
   "dependencies": {
+    "@vercel/node": "^3.0.0",
     "@radix-ui/react-dialog": "^1.1.1",
     "@radix-ui/react-slider": "^1.1.2",
     "@radix-ui/react-slot": "^1.2.4",
@@ -28,6 +29,9 @@
     "sonner": "^1.2.0",
     "tailwind-merge": "^2.2.0",
     "wouter": "^3.0.0"
+  },
+  "engines": {
+    "node": "18.x"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
