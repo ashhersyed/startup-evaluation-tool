@@ -117,7 +117,11 @@ export default function Home() {
             </div>
 
             <Button
-              onClick={handleSubscribe}
+              onClick={() => {
+                console.log('Button clicked!')
+                setIsLoading(true)
+                window.location.href = '/scorer'
+              }}
               disabled={isLoading}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white mb-3"
             >
