@@ -6,6 +6,7 @@ import { ArrowRight, Zap } from 'lucide-react'
 import { toast } from 'sonner'
 
 export default function Home() {
+  // Cache bust: v2
   const [email, setEmail] = useState('')
 
   const handleSubmit = (e: React.FormEvent) => {
