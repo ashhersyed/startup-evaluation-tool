@@ -34,8 +34,8 @@ export default function Home() {
       toast.success('Welcome! Redirecting to scorer...')
       // Navigate to scorer after a short delay
       setTimeout(() => {
-        setLocation('/scorer')
-      }, 1000)
+        window.location.href = '/scorer'
+      }, 500)
     } catch (error: any) {
       console.error('Subscription error:', error)
       
@@ -43,8 +43,8 @@ export default function Home() {
       if (!error.response) {
         toast.success('Welcome! Redirecting to scorer...')
         setTimeout(() => {
-          setLocation('/scorer')
-        }, 1000)
+          window.location.href = '/scorer'
+        }, 500)
         return
       }
       
