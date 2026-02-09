@@ -23,32 +23,21 @@ export default function Home() {
 
   const handleSubscribe = async () => {
     setIsLoading(true)
+    toast.success('Welcome! Redirecting to scorer...')
+    
+    // Redirect immediately
+    setTimeout(() => {
+      window.location.href = '/scorer'
+    }, 500)
+    
+    // Subscribe in the background (don't wait for response)
     try {
-      // Call backend API to subscribe to Beehiiv
       await axios.post('/api/subscribe', { email }, {
-        timeout: 10000,
+        timeout: 5000,
       })
-      
-      toast.success('Welcome! Redirecting to scorer...')
-      // Navigate to scorer after a short delay
-      setTimeout(() => {
-        window.location.href = '/scorer'
-      }, 500)
-    } catch (error: any) {
+    } catch (error) {
+      // Silently fail - user is already redirected
       console.error('Subscription error:', error)
-      
-      // If backend is not available yet, still allow access
-      if (!error.response) {
-        toast.success('Welcome! Redirecting to scorer...')
-        setTimeout(() => {
-          window.location.href = '/scorer'
-        }, 500)
-        return
-      }
-      
-      const errorMsg = error.response?.data?.message || 'Failed to subscribe. Please try again.'
-      toast.error(errorMsg)
-      setIsLoading(false)
     }
   }
 
