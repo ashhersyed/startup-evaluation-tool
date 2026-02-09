@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useLocation } from 'wouter'
 import { Button } from '../components/ui/button'
 import { Input } from '../components/ui/input'
 import { Card } from '../components/ui/card'
@@ -9,7 +8,6 @@ import axios from 'axios'
 import { Loader2 } from 'lucide-react'
 
 export default function Home() {
-  const [, setLocation] = useLocation()
   const [email, setEmail] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
