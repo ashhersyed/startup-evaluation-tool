@@ -21,28 +21,6 @@ export default function Home() {
     setShowModal(true)
   }
 
-  const handleSubscribe = () => {
-    console.log('handleSubscribe called')
-    setIsLoading(true)
-    toast.success('Welcome! Redirecting to scorer...')
-    
-    // Redirect immediately
-    console.log('Redirecting to /scorer')
-    window.location.href = '/scorer'
-    
-    // Subscribe in the background (don't wait for response)
-    setTimeout(() => {
-      try {
-        axios.post('/api/subscribe', { email }, {
-          timeout: 5000,
-        }).catch((error) => {
-          console.error('Subscription error:', error)
-        })
-      } catch (error) {
-        console.error('Subscription error:', error)
-      }
-    }, 1000)
-  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
