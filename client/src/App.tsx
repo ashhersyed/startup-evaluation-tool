@@ -1,13 +1,17 @@
 import { Router, Route } from 'wouter'
+import { Toaster } from 'sonner'
 import Home from './pages/Home'
-import Scorer from './pages/Scorer'
+import Results from './pages/Results'
 
 function App() {
   return (
-    <Router>
-      <Route path="/" component={Home} />
-      <Route path="/scorer" component={Scorer} />
-    </Router>
+    <>
+      <Toaster position="top-center" theme="dark" />
+      <Router>
+        <Route path="/" component={Home} />
+        <Route path="/results" component={Results} />
+      </Router>
+    </>
   )
 }
 
