@@ -19,7 +19,6 @@
     "@radix-ui/react-tabs": "^1.0.4",
     "@vercel/node": "^3.0.0",
     "axios": "^1.13.4",
-    "cheerio": "^1.2.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "cors": "^2.8.5",
