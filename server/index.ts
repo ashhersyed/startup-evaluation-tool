@@ -1,7 +1,7 @@
 import express, { Request, Response } from 'express'
 import cors from 'cors'
 import axios from 'axios'
-import { analyzeStartup } from './analyzer'
+import { analyzeStartup } from '../lib/analyzer'
 
 const app = express()
 const PORT = process.env.PORT || 3001

@@ -1,5 +1,5 @@
 import { VercelRequest, VercelResponse } from '@vercel/node'
-import { analyzeStartup } from '../server/analyzer'
+import { analyzeStartup } from '../lib/analyzer'
 
 export default async function handler(
   req: VercelRequest,
