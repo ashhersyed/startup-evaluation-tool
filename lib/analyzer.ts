@@ -1,5 +1,4 @@
 import * as cheerio from 'cheerio'
-import axios from 'axios'
 
 export interface CategoryScore {
   name: string
@@ -640,18 +639,29 @@ export async function analyzeStartup(url: string): Promise<AnalysisResult> {
     normalizedUrl = `https://${normalizedUrl}`
   }
 
-  // Fetch the website
-  const response = await axios.get(normalizedUrl, {
-    timeout: 15000,
-    headers: {
-      'User-Agent':
-        'Mozilla/5.0 (compatible; StartupEvaluator/1.0; +https://eval.angelsround.com)',
-      Accept: 'text/html,application/xhtml+xml',
-    },
-    maxRedirects: 5,
-  })
+  // Fetch the website using native fetch (works reliably on Vercel)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15000)
 
-  const html = response.data
+  try {
+    var response = await fetch(normalizedUrl, {
+      headers: {
+        'User-Agent':
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      },
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+  } finally {
+    clearTimeout(timeout)
+  }
+
+  if (!response.ok) {
+    throw new Error(`Website returned status ${response.status}`)
+  }
+
+  const html = await response.text()
   const siteData = extractSiteData(html, normalizedUrl)
 
   // Extract company name from title or OG tags

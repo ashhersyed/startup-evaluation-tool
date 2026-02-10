@@ -19,9 +19,14 @@ export default async function handler(
     const result = await analyzeStartup(url)
     return res.status(200).json(result)
   } catch (error: any) {
-    console.error('Analysis error:', error.message)
+    console.error('Analysis error:', error)
 
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
+    if (
+      error.cause?.code === 'ENOTFOUND' ||
+      error.cause?.code === 'ECONNREFUSED' ||
+      error.message?.includes('ENOTFOUND') ||
+      error.message?.includes('fetch failed')
+    ) {
       return res.status(400).json({
         message:
           'Could not reach the website. Please check the URL and try again.',
@@ -34,8 +39,14 @@ export default async function handler(
       })
     }
 
+    if (error.name === 'AbortError') {
+      return res.status(400).json({
+        message: 'Website took too long to respond. Please try again.',
+      })
+    }
+
     return res.status(500).json({
-      message: 'Failed to analyze the website. Please try again.',
+      message: `Failed to analyze the website: ${error.message || 'Unknown error'}`,
     })
   }
 }
