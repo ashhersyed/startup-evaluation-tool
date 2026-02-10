@@ -641,10 +641,11 @@ export async function analyzeStartup(url: string): Promise<AnalysisResult> {
 
   // Fetch the website using native fetch (works reliably on Vercel)
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), 15000)
+  const timeoutId = setTimeout(() => controller.abort(), 15000)
 
+  let html: string
   try {
-    var response = await fetch(normalizedUrl, {
+    const response = await fetch(normalizedUrl, {
       headers: {
         'User-Agent':
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -653,15 +654,15 @@ export async function analyzeStartup(url: string): Promise<AnalysisResult> {
       redirect: 'follow',
       signal: controller.signal,
     })
+
+    if (!response.ok) {
+      throw new Error(`Website returned status ${response.status}`)
+    }
+
+    html = await response.text()
   } finally {
-    clearTimeout(timeout)
+    clearTimeout(timeoutId)
   }
-
-  if (!response.ok) {
-    throw new Error(`Website returned status ${response.status}`)
-  }
-
-  const html = await response.text()
   const siteData = extractSiteData(html, normalizedUrl)
 
   // Extract company name from title or OG tags

@@ -64,7 +64,7 @@ export default function Results() {
       } catch (err: any) {
         const msg =
           err.response?.data?.message ||
-          'Failed to analyze the website. Please try again.'
+          `Request failed: ${err.message} (status: ${err.response?.status || 'no response'})`
         setError(msg)
       } finally {
         setLoading(false)
