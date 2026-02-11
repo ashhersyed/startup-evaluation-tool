@@ -77,21 +77,21 @@ export default function Results() {
   const getScoreColor = (score: number) => {
     if (score >= 80) return 'text-green-400'
     if (score >= 60) return 'text-yellow-400'
-    if (score >= 40) return 'text-orange-400'
+    if (score >= 40) return 'text-[#E8723A]'
     return 'text-red-400'
   }
 
   const getScoreBg = (score: number) => {
     if (score >= 80) return 'bg-green-500/10 border-green-500/30'
     if (score >= 60) return 'bg-yellow-500/10 border-yellow-500/30'
-    if (score >= 40) return 'bg-orange-500/10 border-orange-500/30'
+    if (score >= 40) return 'bg-[#E8723A]/10 border-[#E8723A]/30'
     return 'bg-red-500/10 border-red-500/30'
   }
 
   const getScoreBarColor = (score: number) => {
     if (score >= 80) return 'bg-green-500'
     if (score >= 60) return 'bg-yellow-500'
-    if (score >= 40) return 'bg-orange-500'
+    if (score >= 40) return 'bg-[#E8723A]'
     return 'bg-red-500'
   }
 
@@ -140,13 +140,13 @@ export default function Results() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-black flex items-center justify-center p-4">
         <div className="text-center">
-          <Loader2 className="w-12 h-12 text-blue-400 animate-spin mx-auto mb-6" />
+          <Loader2 className="w-12 h-12 text-[#E8723A] animate-spin mx-auto mb-6" />
           <h2 className="text-2xl font-bold text-white mb-2">
             Analyzing Startup...
           </h2>
-          <p className="text-slate-400 max-w-md">
+          <p className="text-gray-500 max-w-md">
             We're scanning the website, evaluating key signals across 6
             dimensions, and generating your VC-grade scorecard.
           </p>
@@ -157,16 +157,16 @@ export default function Results() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center p-4">
-        <Card className="bg-slate-800/50 border-slate-700 p-8 max-w-md text-center">
+      <div className="min-h-screen bg-black flex items-center justify-center p-4">
+        <Card className="bg-neutral-900 border-neutral-800 p-8 max-w-md text-center">
           <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
           <h2 className="text-xl font-bold text-white mb-2">
             Analysis Failed
           </h2>
-          <p className="text-slate-400 mb-6">{error}</p>
+          <p className="text-gray-500 mb-6">{error}</p>
           <Button
             onClick={() => navigate('/')}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-[#E8723A] hover:bg-[#D4612E] text-white"
           >
             <ArrowLeft className="w-4 h-4 mr-2" />
             Try Another URL
@@ -179,13 +179,13 @@ export default function Results() {
   if (!result) return null
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-4 md:p-8">
+    <div className="min-h-screen bg-black p-4 md:p-8">
       <div className="max-w-4xl mx-auto">
         {/* Header */}
         <div className="mb-8">
           <button
             onClick={() => navigate('/')}
-            className="text-sm text-slate-400 hover:text-white mb-4 flex items-center gap-1"
+            className="text-sm text-gray-500 hover:text-white mb-4 flex items-center gap-1"
           >
             <ArrowLeft className="w-3 h-3" />
             Evaluate another startup
@@ -197,12 +197,12 @@ export default function Results() {
             href={result.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm text-blue-400 hover:underline"
+            className="text-sm text-[#E8723A] hover:underline"
           >
             {result.url}
           </a>
           {result.description && (
-            <p className="text-slate-400 mt-2 max-w-2xl">
+            <p className="text-gray-500 mt-2 max-w-2xl">
               {result.description}
             </p>
           )}
@@ -211,7 +211,7 @@ export default function Results() {
         {/* Overall Score */}
         <Card className={`${getScoreBg(result.overallScore)} border p-8 mb-8`}>
           <div className="text-center">
-            <p className="text-slate-400 mb-2 text-sm uppercase tracking-wide">
+            <p className="text-gray-500 mb-2 text-sm uppercase tracking-wide">
               Overall Rating
             </p>
             <p
@@ -219,7 +219,7 @@ export default function Results() {
             >
               {result.overallScore}
             </p>
-            <p className="text-slate-400 mt-1">/100</p>
+            <p className="text-gray-500 mt-1">/100</p>
             <p
               className={`text-lg font-semibold mt-2 ${getScoreColor(result.overallScore)}`}
             >
@@ -229,9 +229,9 @@ export default function Results() {
         </Card>
 
         {/* Summary */}
-        <Card className="bg-slate-800/50 border-slate-700 p-6 mb-8">
+        <Card className="bg-neutral-900 border-neutral-800 p-6 mb-8">
           <h2 className="text-lg font-semibold text-white mb-2">Summary</h2>
-          <p className="text-slate-300 leading-relaxed">{result.summary}</p>
+          <p className="text-gray-400 leading-relaxed">{result.summary}</p>
         </Card>
 
         {/* Category Scores */}
@@ -242,7 +242,7 @@ export default function Results() {
           {result.categories.map((category, index) => (
             <Card
               key={index}
-              className="bg-slate-800/50 border-slate-700 overflow-hidden"
+              className="bg-neutral-900 border-neutral-800 overflow-hidden"
             >
               <button
                 onClick={() =>
@@ -257,7 +257,7 @@ export default function Results() {
                     <h3 className="text-lg font-semibold text-white">
                       {category.name}
                     </h3>
-                    <span className="text-xs text-slate-500 bg-slate-700/50 px-2 py-0.5 rounded">
+                    <span className="text-xs text-gray-600 bg-neutral-800 px-2 py-0.5 rounded">
                       {category.weight * 100}% weight
                     </span>
                   </div>
@@ -268,15 +268,15 @@ export default function Results() {
                       {category.score}
                     </span>
                     {expandedCategory === index ? (
-                      <ChevronUp className="w-4 h-4 text-slate-400" />
+                      <ChevronUp className="w-4 h-4 text-gray-500" />
                     ) : (
-                      <ChevronDown className="w-4 h-4 text-slate-400" />
+                      <ChevronDown className="w-4 h-4 text-gray-500" />
                     )}
                   </div>
                 </div>
 
                 {/* Score bar */}
-                <div className="w-full bg-slate-700/50 rounded-full h-2">
+                <div className="w-full bg-neutral-800 rounded-full h-2">
                   <div
                     className={`${getScoreBarColor(category.score)} h-2 rounded-full transition-all`}
                     style={{ width: `${category.score}%` }}
@@ -285,19 +285,19 @@ export default function Results() {
               </button>
 
               {expandedCategory === index && (
-                <div className="px-6 pb-6 border-t border-slate-700/50 pt-4">
-                  <p className="text-slate-300 mb-4">{category.reasoning}</p>
+                <div className="px-6 pb-6 border-t border-neutral-800 pt-4">
+                  <p className="text-gray-400 mb-4">{category.reasoning}</p>
                   <div className="space-y-2">
-                    <p className="text-sm font-medium text-slate-400">
+                    <p className="text-sm font-medium text-gray-500">
                       Key Signals:
                     </p>
                     <ul className="space-y-1">
                       {category.signals.map((signal, i) => (
                         <li
                           key={i}
-                          className="text-sm text-slate-300 flex items-start gap-2"
+                          className="text-sm text-gray-400 flex items-start gap-2"
                         >
-                          <span className="text-blue-400 mt-1 shrink-0">
+                          <span className="text-[#E8723A] mt-1 shrink-0">
                             &bull;
                           </span>
                           {signal}
@@ -315,7 +315,7 @@ export default function Results() {
         <div className="flex gap-4 justify-center pb-12">
           <Button
             onClick={handleShare}
-            className="bg-blue-600 hover:bg-blue-700 text-white"
+            className="bg-[#E8723A] hover:bg-[#D4612E] text-white"
           >
             <Share2 className="w-4 h-4 mr-2" />
             Share Results
@@ -323,7 +323,7 @@ export default function Results() {
           <Button
             onClick={handleExport}
             variant="outline"
-            className="border-slate-600 text-white hover:bg-slate-700"
+            className="border-neutral-700 text-white hover:bg-neutral-800"
           >
             <Download className="w-4 h-4 mr-2" />
             Export CSV
@@ -331,7 +331,7 @@ export default function Results() {
           <Button
             onClick={() => navigate('/')}
             variant="outline"
-            className="border-slate-600 text-white hover:bg-slate-700"
+            className="border-neutral-700 text-white hover:bg-neutral-800"
           >
             Evaluate Another
           </Button>
