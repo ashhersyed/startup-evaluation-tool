@@ -18,8 +18,9 @@ import { toast } from 'sonner'
 import { useLocation } from 'wouter'
 
 export default function Home() {
+  const savedEmail = sessionStorage.getItem('eval_email') || ''
   const [websiteUrl, setWebsiteUrl] = useState('')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(savedEmail)
   const [step, setStep] = useState<'url' | 'email'>('url')
   const [showMethodology, setShowMethodology] = useState(false)
   const [, navigate] = useLocation()
@@ -28,6 +29,13 @@ export default function Home() {
     e.preventDefault()
     if (!websiteUrl.trim()) {
       toast.error('Please enter a website URL')
+      return
+    }
+    // Skip email step if we already have one from a previous analysis
+    if (savedEmail) {
+      sessionStorage.setItem('eval_url', websiteUrl.trim())
+      toast.success('Analyzing startup...')
+      navigate('/results')
       return
     }
     setStep('email')
