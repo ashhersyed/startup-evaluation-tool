@@ -9,6 +9,8 @@ import {
   ChevronUp,
   ArrowLeft,
   AlertCircle,
+  Link2,
+  X,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useLocation } from 'wouter'
@@ -36,6 +38,7 @@ export default function Results() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expandedCategory, setExpandedCategory] = useState<number | null>(null)
+  const [showShareMenu, setShowShareMenu] = useState(false)
   const [, navigate] = useLocation()
 
   useEffect(() => {
@@ -104,11 +107,31 @@ export default function Results() {
     return 'Early Stage'
   }
 
-  const handleShare = () => {
-    if (!result) return
-    const shareText = `I evaluated ${result.companyName} and it scored ${result.overallScore}/100 on the Startup Rating Tool. Get your free startup evaluation at eval.angelsround.com`
-    navigator.clipboard.writeText(shareText)
+  const siteUrl = 'https://eval.angelsround.com'
+
+  const getShareText = () => {
+    if (!result) return ''
+    return `I evaluated ${result.companyName} and it scored ${result.overallScore}/100 on the Startup Rating Tool. Get your free startup evaluation at ${siteUrl}`
+  }
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(getShareText())
     toast.success('Copied to clipboard!')
+    setShowShareMenu(false)
+  }
+
+  const handleShareTwitter = () => {
+    if (!result) return
+    const text = encodeURIComponent(`${result.companyName} scored ${result.overallScore}/100 on the Startup Rating Tool ⚡\n\nGet your free startup evaluation:`)
+    const url = encodeURIComponent(siteUrl)
+    window.open(`https://twitter.com/intent/tweet?text=${text}&url=${url}`, '_blank')
+    setShowShareMenu(false)
+  }
+
+  const handleShareLinkedIn = () => {
+    const url = encodeURIComponent(siteUrl)
+    window.open(`https://www.linkedin.com/sharing/share-offsite/?url=${url}`, '_blank')
+    setShowShareMenu(false)
   }
 
   const handleExport = () => {
@@ -314,13 +337,47 @@ export default function Results() {
 
         {/* Action Buttons */}
         <div className="flex gap-4 justify-center pb-12">
-          <Button
-            onClick={handleShare}
-            className="bg-[#E8723A] hover:bg-[#D4612E] text-white"
-          >
-            <Share2 className="w-4 h-4 mr-2" />
-            Share Results
-          </Button>
+          <div className="relative">
+            <Button
+              onClick={() => setShowShareMenu(!showShareMenu)}
+              className="bg-[#E8723A] hover:bg-[#D4612E] text-white"
+            >
+              <Share2 className="w-4 h-4 mr-2" />
+              Share Results
+              <ChevronDown className="w-3 h-3 ml-2" />
+            </Button>
+            {showShareMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-10"
+                  onClick={() => setShowShareMenu(false)}
+                />
+                <div className="absolute bottom-full mb-2 left-1/2 -translate-x-1/2 bg-neutral-900 border border-neutral-700 rounded-lg shadow-xl z-20 min-w-[200px] py-1">
+                  <button
+                    onClick={handleCopyLink}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                  >
+                    <Link2 className="w-4 h-4" />
+                    Copy to Clipboard
+                  </button>
+                  <button
+                    onClick={handleShareTwitter}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                    Share on X
+                  </button>
+                  <button
+                    onClick={handleShareLinkedIn}
+                    className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-gray-300 hover:bg-neutral-800 hover:text-white transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 01-2.063-2.065 2.064 2.064 0 112.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+                    Share on LinkedIn
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <Button
             onClick={handleExport}
             variant="outline"
