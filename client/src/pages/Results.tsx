@@ -48,10 +48,11 @@ export default function Results() {
     }
 
     async function run() {
-      // Subscribe email in background (don't block on failure)
+      // Subscribe email to beehiiv
       axios
         .post('/api/subscribe', { email }, { timeout: 10000 })
-        .catch(() => {})
+        .then(() => toast.success('Subscribed to newsletter!'))
+        .catch(() => toast.error('Newsletter subscription failed'))
 
       // Analyze the website
       try {
