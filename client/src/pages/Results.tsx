@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Link2,
   X,
+  Info,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import { useLocation } from 'wouter'
@@ -105,6 +106,26 @@ export default function Results() {
     if (score >= 50) return 'Moderate'
     if (score >= 35) return 'Developing'
     return 'Early Stage'
+  }
+
+  const role = sessionStorage.getItem('eval_role') as 'founder' | 'investor' | null
+
+  const getRoleInterpretation = (score: number) => {
+    if (role === 'founder') {
+      if (score >= 80) return 'Your company shows strong investor-ready signals. You\'re well-positioned for fundraising conversations.'
+      if (score >= 65) return 'Solid foundation. Focus on strengthening weaker areas before your next investor pitch.'
+      if (score >= 50) return 'Moderate signals. Investors will want to see more traction — add customer proof, pricing, and team visibility.'
+      if (score >= 35) return 'Early stage. Focus on product and customers first. Revisit fundraising once you have stronger signals.'
+      return 'Very early. Build your product, get initial customers, and develop your online presence before approaching investors.'
+    }
+    if (role === 'investor') {
+      if (score >= 80) return 'Investment-grade signals. This startup warrants due diligence — request financials and schedule a founder meeting.'
+      if (score >= 65) return 'Promising. Worth a founder conversation to validate the opportunity beyond public signals.'
+      if (score >= 50) return 'Mixed signals. Dig deeper into the team and traction before committing time.'
+      if (score >= 35) return 'Early stage. Only consider if you\'re investing at pre-seed or backing the team specifically.'
+      return 'Pre-institutional stage. Not ready for traditional VC investment. Revisit if the team shows progress.'
+    }
+    return null
   }
 
   const siteUrl = 'https://eval.angelsround.com'
@@ -252,6 +273,20 @@ export default function Results() {
           </div>
         </Card>
 
+        {/* Role-specific interpretation */}
+        {getRoleInterpretation(result.overallScore) && (
+          <Card className="bg-[#E8723A]/5 border-[#E8723A]/20 p-5 mb-8">
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 mt-0.5 px-2 py-0.5 bg-[#E8723A]/15 rounded text-xs font-semibold text-[#E8723A] uppercase">
+                {role === 'founder' ? 'Founder' : 'Investor'} Insight
+              </div>
+              <p className="text-gray-300 text-sm leading-relaxed">
+                {getRoleInterpretation(result.overallScore)}
+              </p>
+            </div>
+          </Card>
+        )}
+
         {/* Summary */}
         <Card className="bg-neutral-900 border-neutral-800 p-6 mb-8">
           <h2 className="text-lg font-semibold text-white mb-2">Summary</h2>
@@ -393,6 +428,14 @@ export default function Results() {
           >
             Evaluate Another
           </Button>
+        </div>
+
+        {/* Disclaimer */}
+        <div className="flex items-center justify-center gap-2 pb-12 text-center">
+          <Info className="w-3.5 h-3.5 text-gray-600 shrink-0" />
+          <p className="text-xs text-gray-600">
+            This score is based on publicly available website data and is for directional purposes only. It does not constitute investment advice.
+          </p>
         </div>
       </div>
     </div>
