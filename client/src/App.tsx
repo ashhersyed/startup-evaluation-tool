@@ -1,7 +1,9 @@
 import { Router, Route } from 'wouter'
 import { Toaster } from 'sonner'
 import Home from './pages/Home'
-import Results from './pages/Results'
+import Jobs from './pages/Jobs'
+import JobDetail from './pages/JobDetail'
+import Recommendations from './pages/Recommendations'
 
 function App() {
   return (
@@ -9,7 +11,9 @@ function App() {
       <Toaster position="top-center" theme="dark" />
       <Router>
         <Route path="/" component={Home} />
-        <Route path="/results" component={Results} />
+        <Route path="/jobs" component={Jobs} />
+        <Route path="/jobs/:id" component={JobDetail} />
+        <Route path="/recommendations" component={Recommendations} />
       </Router>
     </>
   )

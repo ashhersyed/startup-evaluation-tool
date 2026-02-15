@@ -1,160 +1,200 @@
-import { useState } from 'react'
-import { Button } from '../components/ui/button'
-import { Input } from '../components/ui/input'
-import { Card } from '../components/ui/card'
-import { ArrowRight, Globe, Mail, BarChart3, Share2 } from 'lucide-react'
-import { toast } from 'sonner'
-import { useLocation } from 'wouter'
+import { useState, useEffect } from 'react';
+import { useLocation } from 'wouter';
+import { toast } from 'sonner';
+import { Rocket, Search, Layers, RefreshCw, GitMerge } from 'lucide-react';
+import { Button } from '../components/ui/button';
+import StatsBar from '../components/StatsBar';
+import { useAuth } from '../hooks/useAuth';
+import { getStats } from '../lib/api';
+import type { DashboardStats } from '../types';
 
 export default function Home() {
-  const [websiteUrl, setWebsiteUrl] = useState('')
-  const [email, setEmail] = useState('')
-  const [step, setStep] = useState<'url' | 'email'>('url')
-  const [, navigate] = useLocation()
+  const { isAuthenticated, login } = useAuth();
+  const [, navigate] = useLocation();
+  const [email, setEmail] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
 
-  const handleUrlSubmit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!websiteUrl.trim()) {
-      toast.error('Please enter a website URL')
-      return
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate('/jobs');
     }
-    setStep('email')
-  }
+  }, [isAuthenticated, navigate]);
 
-  const handleEmailSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  useEffect(() => {
+    getStats()
+      .then(setStats)
+      .catch(() => {});
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
     if (!email.trim()) {
-      toast.error('Please enter your email address')
-      return
+      toast.error('Please enter your email');
+      return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      toast.error('Please enter a valid email');
+      return;
+    }
+    setLoading(true);
+    try {
+      await login(email.trim());
+      toast.success('Welcome! Redirecting...');
+      navigate('/jobs');
+    } catch {
+      toast.error('Something went wrong. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    // Store in sessionStorage for the results page
-    sessionStorage.setItem('eval_url', websiteUrl.trim())
-    sessionStorage.setItem('eval_email', email.trim())
+  if (isAuthenticated) return null;
 
-    toast.success('Analyzing startup...')
-    navigate('/results')
-  }
+  const features = [
+    {
+      icon: Search,
+      title: '30+ Sources',
+      description:
+        'Aggregating job boards, company career pages, and VC portfolio sites into one unified search.',
+    },
+    {
+      icon: Layers,
+      title: '14 VC Portfolios',
+      description:
+        'Jobs from top portfolios including YC, a16z, Sequoia, Greylock, Benchmark, and more.',
+    },
+    {
+      icon: RefreshCw,
+      title: 'Real-time Freshness',
+      description:
+        'Continuous scraping ensures you see the newest opportunities within hours of posting.',
+    },
+    {
+      icon: GitMerge,
+      title: 'Smart Dedup',
+      description:
+        'Intelligent deduplication merges identical postings from multiple sources into one listing.',
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900">
-      <section className="relative min-h-screen flex items-center justify-center px-4 py-20">
-        <div className="max-w-2xl text-center">
-          <div className="inline-block mb-6 px-4 py-2 bg-blue-600/20 border border-blue-500/50 rounded-lg">
-            <p className="text-sm font-semibold text-blue-400">
-              AI-Powered Startup Analysis
-            </p>
+    <div className="min-h-screen bg-gray-950 flex flex-col">
+      {/* Gradient overlay */}
+      <div className="absolute inset-0 bg-gradient-to-br from-blue-600/10 via-transparent to-purple-600/5 pointer-events-none" />
+
+      {/* Hero */}
+      <main className="relative flex-1 flex flex-col items-center justify-center px-4 py-20">
+        <div className="max-w-2xl w-full text-center space-y-8">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <Rocket className="h-10 w-10 text-blue-500" />
           </div>
 
-          <h1 className="text-5xl md:text-7xl font-black text-white mb-6 leading-tight">
-            Rate Any Startup
-            <br />
-            <span className="text-blue-400">By Its Website</span>
+          <h1 className="text-5xl sm:text-6xl font-bold text-gray-100 tracking-tight">
+            Find Your Next{' '}
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-blue-600">
+              Startup Job
+            </span>
           </h1>
 
-          <p className="text-xl text-slate-300 mb-10 max-w-xl mx-auto">
-            Enter any startup's website and get an instant VC-grade evaluation
-            across 6 key dimensions. Powered by data-driven analysis.
+          <p className="text-xl text-gray-400 max-w-lg mx-auto leading-relaxed">
+            Search 30+ sources including YC, a16z, Sequoia, and 14 top VC
+            portfolios. All in one place.
           </p>
 
-          {step === 'url' ? (
-            <form
-              onSubmit={handleUrlSubmit}
-              className="flex flex-col sm:flex-row gap-3 max-w-lg mx-auto mb-12"
+          {/* Email Gate */}
+          <form
+            onSubmit={handleSubmit}
+            className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto"
+          >
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="Enter your email"
+              className="flex-1 h-12 px-4 rounded-lg bg-gray-900 border border-gray-700 text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-base"
+              disabled={loading}
+            />
+            <Button
+              type="submit"
+              disabled={loading}
+              className="h-12 px-8 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg text-base"
             >
-              <div className="flex-1 relative">
-                <Globe className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                <Input
-                  type="text"
-                  placeholder="e.g. stripe.com"
-                  value={websiteUrl}
-                  onChange={(e) => setWebsiteUrl(e.target.value)}
-                  className="pl-10"
-                />
-              </div>
-              <Button
-                type="submit"
-                className="bg-blue-600 hover:bg-blue-700 text-white"
-              >
-                Analyze
-                <ArrowRight className="w-4 h-4 ml-2" />
-              </Button>
-            </form>
-          ) : (
-            <div className="max-w-lg mx-auto mb-12">
-              <div className="bg-slate-800/50 border border-slate-700 rounded-lg px-4 py-3 mb-4 flex items-center gap-2">
-                <Globe className="w-4 h-4 text-blue-400 shrink-0" />
-                <span className="text-sm text-slate-300 truncate">
-                  {websiteUrl}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <svg
+                    className="animate-spin h-4 w-4"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                    />
+                  </svg>
+                  Loading...
                 </span>
-                <button
-                  onClick={() => setStep('url')}
-                  className="ml-auto text-xs text-blue-400 hover:text-blue-300"
-                >
-                  Change
-                </button>
-              </div>
-              <form
-                onSubmit={handleEmailSubmit}
-                className="flex flex-col sm:flex-row gap-3"
-              >
-                <div className="flex-1 relative">
-                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-                  <Input
-                    type="email"
-                    placeholder="your@email.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10"
-                  />
-                </div>
-                <Button
-                  type="submit"
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Get Results
-                  <ArrowRight className="w-4 h-4 ml-2" />
-                </Button>
-              </form>
-              <p className="text-xs text-slate-500 mt-3">
-                Get your free evaluation + weekly startup insights. Unsubscribe
-                anytime.
-              </p>
+              ) : (
+                'Get Access'
+              )}
+            </Button>
+          </form>
+
+          <p className="text-gray-600 text-sm">Free access. We'll send you weekly startup job digests.</p>
+
+          {/* Stats */}
+          {stats && (
+            <div className="pt-4">
+              <StatsBar stats={stats} />
             </div>
           )}
+        </div>
 
-          {/* Features */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mt-16">
-            <Card className="bg-slate-800/50 border-slate-700 p-6">
-              <Globe className="w-8 h-8 text-blue-400 mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">
-                Just Enter a URL
+        {/* Feature Cards */}
+        <div className="max-w-4xl w-full mt-20 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 px-4">
+          {features.map((feature) => (
+            <div
+              key={feature.title}
+              className="p-5 rounded-xl bg-gray-900/50 border border-gray-800 hover:border-gray-700 transition-colors"
+            >
+              <feature.icon className="h-8 w-8 text-blue-500 mb-3" />
+              <h3 className="text-sm font-semibold text-gray-200 mb-1">
+                {feature.title}
               </h3>
-              <p className="text-slate-400">
-                Paste any startup website and get an instant evaluation
+              <p className="text-xs text-gray-500 leading-relaxed">
+                {feature.description}
               </p>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700 p-6">
-              <BarChart3 className="w-8 h-8 text-blue-400 mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">
-                6 VC Dimensions
-              </h3>
-              <p className="text-slate-400">
-                Scored on market, team, product-fit, model, moat, and execution
-              </p>
-            </Card>
-            <Card className="bg-slate-800/50 border-slate-700 p-6">
-              <Share2 className="w-8 h-8 text-blue-400 mb-4" />
-              <h3 className="text-lg font-semibold text-white mb-2">
-                Share & Export
-              </h3>
-              <p className="text-slate-400">
-                Download CSV reports or share results with your team
-              </p>
-            </Card>
+            </div>
+          ))}
+        </div>
+
+        {/* VC logos */}
+        <div className="max-w-4xl w-full mt-16 text-center px-4">
+          <p className="text-gray-600 text-xs uppercase tracking-wider mb-4">Sourcing from portfolios of</p>
+          <div className="flex flex-wrap items-center justify-center gap-2">
+            {['a16z', 'Sequoia', 'Accel', 'Greylock', 'Kleiner Perkins', 'Lightspeed', 'Index Ventures', 'General Catalyst', 'Bessemer', 'NEA', 'Insight Partners', 'Khosla', 'Thrive Capital', 'Battery Ventures'].map((vc) => (
+              <span key={vc} className="bg-gray-900 border border-gray-800 rounded-full px-3 py-1 text-xs text-gray-500">
+                {vc}
+              </span>
+            ))}
           </div>
         </div>
-      </section>
+      </main>
+
+      {/* Footer */}
+      <footer className="relative py-6 text-center text-xs text-gray-600">
+        Startup Job Search Engine
+      </footer>
     </div>
-  )
+  );
 }

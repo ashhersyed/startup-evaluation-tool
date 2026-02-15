@@ -1,38 +1,76 @@
-import express, { Request, Response } from 'express'
-import cors from 'cors'
-import axios from 'axios'
-import { analyzeStartup } from '../lib/analyzer'
+import express, { Request, Response } from 'express';
+import cors from 'cors';
+import axios from 'axios';
+import { analyzeStartup } from '../lib/analyzer.js';
+import { getDb } from './db/schema.js';
+import { startScheduler } from './agents/scheduler.js';
 
-const app = express()
-const PORT = process.env.PORT || 3001
+// Import routes
+import jobsRouter from './routes/jobs.js';
+import companiesRouter from './routes/companies.js';
+import recommendRouter from './routes/recommend.js';
+import filtersRouter from './routes/filters.js';
+import adminRouter from './routes/admin.js';
+
+const app = express();
+const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors())
-app.use(express.json())
+app.use(cors());
+app.use(express.json());
+
+// Initialize database
+getDb();
 
 // Environment variables
-const BEEHIIV_API_KEY = process.env.BEEHIIV_API_KEY
-const BEEHIIV_PUB_ID = process.env.BEEHIIV_PUB_ID
+const BEEHIIV_API_KEY = process.env.BEEHIIV_API_KEY;
+const BEEHIIV_PUB_ID = process.env.BEEHIIV_PUB_ID;
 
 // Health check endpoint
-app.get('/health', (req: Request, res: Response) => {
-  res.json({ status: 'ok' })
-})
+app.get('/health', (_req: Request, res: Response) => {
+  res.json({ status: 'ok' });
+});
 
-// Subscribe endpoint
+// Job search engine API routes
+app.use('/api/jobs', jobsRouter);
+app.use('/api/companies', companiesRouter);
+app.use('/api/recommend', recommendRouter);
+app.use('/api/filters', filtersRouter);
+app.use('/api/admin', adminRouter);
+
+// Stats endpoint (also accessible via /api/filters/stats but convenient at top level)
+app.get('/api/stats', (_req: Request, res: Response) => {
+  try {
+    const db = getDb();
+    const stats = db.prepare(`
+      SELECT
+        (SELECT COUNT(*) FROM jobs WHERE is_active = 1) as total_active_jobs,
+        (SELECT COUNT(DISTINCT company_id) FROM jobs WHERE is_active = 1) as total_companies,
+        (SELECT COUNT(DISTINCT source) FROM jobs WHERE is_active = 1) as sources_count,
+        (SELECT MAX(scraped_at) FROM jobs) as last_updated,
+        (SELECT COUNT(*) FROM jobs WHERE is_active = 1 AND created_at > datetime('now', '-1 day')) as jobs_added_24h,
+        (SELECT COUNT(*) FROM jobs WHERE is_active = 1 AND created_at > datetime('now', '-7 days')) as jobs_added_7d
+    `).get() as any;
+    res.json(stats);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Subscribe endpoint (Beehiiv)
 app.post('/api/subscribe', async (req: Request, res: Response) => {
   try {
-    const { email } = req.body
+    const { email } = req.body;
 
     if (!email) {
-      return res.status(400).json({ message: 'Email is required' })
+      return res.status(400).json({ message: 'Email is required' });
     }
 
     if (!BEEHIIV_API_KEY || !BEEHIIV_PUB_ID) {
-      return res.status(500).json({ message: 'Server configuration error' })
+      // In dev mode without keys, just accept the email
+      return res.status(200).json({ message: 'Subscribed (dev mode)' });
     }
 
-    // Call Beehiiv API
     const response = await axios.post(
       `https://api.beehiiv.com/v2/publications/${BEEHIIV_PUB_ID}/subscriptions`,
       {
@@ -46,62 +84,44 @@ app.post('/api/subscribe', async (req: Request, res: Response) => {
           'Content-Type': 'application/json',
         },
       }
-    )
+    );
 
     return res.status(200).json({
       message: 'Successfully subscribed',
       subscriber: response.data,
-    })
+    });
   } catch (error: any) {
-    console.error('Beehiiv API error:', error.response?.data || error.message)
+    console.error('Beehiiv API error:', error.response?.data || error.message);
 
     if (error.response?.status === 409) {
-      // Subscriber already exists
-      return res.status(200).json({
-        message: 'Already subscribed',
-      })
+      return res.status(200).json({ message: 'Already subscribed' });
     }
 
     return res.status(500).json({
       message: error.response?.data?.message || 'Failed to subscribe',
-    })
+    });
   }
-})
+});
 
-// Analyze endpoint
+// Legacy analyze endpoint
 app.post('/api/analyze', async (req: Request, res: Response) => {
   try {
-    const { url } = req.body
-
-    if (!url) {
-      return res.status(400).json({ message: 'URL is required' })
-    }
-
-    const result = await analyzeStartup(url)
-    return res.status(200).json(result)
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ message: 'URL is required' });
+    const result = await analyzeStartup(url);
+    return res.status(200).json(result);
   } catch (error: any) {
-    console.error('Analysis error:', error.message)
-
-    if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-      return res.status(400).json({
-        message:
-          'Could not reach the website. Please check the URL and try again.',
-      })
-    }
-
-    if (error.message?.includes('Invalid URL')) {
-      return res.status(400).json({
-        message: 'Invalid URL format. Please enter a valid website address.',
-      })
-    }
-
-    return res.status(500).json({
-      message: 'Failed to analyze the website. Please try again.',
-    })
+    console.error('Analysis error:', error.message);
+    return res.status(500).json({ message: 'Failed to analyze the website.' });
   }
-})
+});
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`)
-})
+  console.log(`Server running on port ${PORT}`);
+
+  // Start the cron scheduler for automated scraping
+  if (process.env.ENABLE_SCHEDULER !== 'false') {
+    startScheduler();
+  }
+});
