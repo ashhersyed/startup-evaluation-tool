@@ -1,205 +1,335 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useLocation } from 'wouter';
-import { useAuth } from '../hooks/useAuth';
-import { useJobs } from '../hooks/useJobs';
-import { useFilters } from '../hooks/useFilters';
-import { useDebounce } from '../hooks/useDebounce';
-import { getStats } from '../lib/api';
+import { SlidersHorizontal, X, ArrowUpDown, LogOut } from 'lucide-react';
+import { Button } from '../components/ui/button';
 import SearchBar from '../components/SearchBar';
 import FilterPanel from '../components/FilterPanel';
 import JobCard from '../components/JobCard';
 import Pagination from '../components/Pagination';
-import StatsBar from '../components/StatsBar';
-import { Button } from '../components/ui/button';
-import { Briefcase, SlidersHorizontal, X, Trophy, LogOut } from 'lucide-react';
-import type { JobSearchParams, DashboardStats } from '../types';
+import { useAuth } from '../hooks/useAuth';
+import { useJobs } from '../hooks/useJobs';
+import { useFilters } from '../hooks/useFilters';
+import type { JobSearchParams } from '../types';
 
 export default function Jobs() {
   const { isAuthenticated, logout } = useAuth();
   const [, navigate] = useLocation();
-  const [showFilters, setShowFilters] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const debouncedQuery = useDebounce(searchQuery, 300);
-  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const { filterOptions } = useFilters();
+  const [showMobileFilters, setShowMobileFilters] = useState(false);
 
   const [params, setParams] = useState<JobSearchParams>({
+    q: '',
     page: 1,
     limit: 20,
     sort: 'date',
   });
 
-  // Sync debounced query into params
-  useEffect(() => {
-    setParams(p => ({ ...p, q: debouncedQuery || undefined, page: 1 }));
-  }, [debouncedQuery]);
-
-  const { jobs, total, page, totalPages, loading } = useJobs(params);
-  const { filterOptions } = useFilters();
+  const { jobs, total, page, totalPages, loading, error } = useJobs(params);
 
   useEffect(() => {
-    if (!isAuthenticated) navigate('/');
+    if (!isAuthenticated) {
+      navigate('/');
+    }
   }, [isAuthenticated, navigate]);
 
-  useEffect(() => {
-    getStats().then(setStats).catch(() => {});
+  const updateParams = useCallback((updates: Partial<JobSearchParams>) => {
+    setParams((prev) => ({ ...prev, ...updates }));
   }, []);
-
-  const updateFilters = useCallback((updates: Partial<JobSearchParams>) => {
-    setParams(p => ({ ...p, ...updates, page: 1 }));
-  }, []);
-
-  const clearFilters = useCallback(() => {
-    setSearchQuery('');
-    setParams({ page: 1, limit: 20, sort: 'date' });
-  }, []);
-
-  // Active filter pills
-  const activeFilters: { key: string; label: string }[] = [];
-  if (params.funding_stage) activeFilters.push({ key: 'funding_stage', label: `Stage: ${params.funding_stage}` });
-  if (params.vc) activeFilters.push({ key: 'vc', label: `VC: ${params.vc}` });
-  if (params.company_size) activeFilters.push({ key: 'company_size', label: `Size: ${params.company_size}` });
-  if (params.posted_within) activeFilters.push({ key: 'posted_within', label: `Posted: ${params.posted_within}` });
-  if (params.location) activeFilters.push({ key: 'location', label: `Location: ${params.location}` });
-  if (params.remote) activeFilters.push({ key: 'remote', label: 'Remote Only' });
-
-  const removeFilter = (key: string) => {
-    const updates: any = { [key]: undefined };
-    if (key === 'remote') updates.remote = false;
-    updateFilters(updates);
-  };
 
   if (!isAuthenticated) return null;
 
+  // Collect active filter pills
+  const activeFilters: { label: string; key: string; value: string }[] = [];
+  if (params.funding_stage) {
+    params.funding_stage.split(',').forEach((s) =>
+      activeFilters.push({ label: s, key: 'funding_stage', value: s })
+    );
+  }
+  if (params.vc) {
+    params.vc.split(',').forEach((v) =>
+      activeFilters.push({ label: v, key: 'vc', value: v })
+    );
+  }
+  if (params.company_size) {
+    activeFilters.push({
+      label: `${params.company_size} employees`,
+      key: 'company_size',
+      value: params.company_size,
+    });
+  }
+  if (params.posted_within) {
+    const labels: Record<string, string> = {
+      '24h': 'Last 24h',
+      '7d': 'Last 7 days',
+      '30d': 'Last 30 days',
+    };
+    activeFilters.push({
+      label: labels[params.posted_within] ?? params.posted_within,
+      key: 'posted_within',
+      value: params.posted_within,
+    });
+  }
+  if (params.location) {
+    activeFilters.push({
+      label: params.location,
+      key: 'location',
+      value: params.location,
+    });
+  }
+  if (params.remote) {
+    activeFilters.push({ label: 'Remote only', key: 'remote', value: 'true' });
+  }
+
+  const removeFilter = (key: string, value: string) => {
+    if (key === 'funding_stage') {
+      const stages = (params.funding_stage ?? '')
+        .split(',')
+        .filter((s) => s !== value);
+      updateParams({
+        funding_stage: stages.length ? stages.join(',') : undefined,
+        page: 1,
+      });
+    } else if (key === 'vc') {
+      const vcs = (params.vc ?? '').split(',').filter((v) => v !== value);
+      updateParams({ vc: vcs.length ? vcs.join(',') : undefined, page: 1 });
+    } else if (key === 'company_size') {
+      updateParams({ company_size: undefined, page: 1 });
+    } else if (key === 'posted_within') {
+      updateParams({ posted_within: undefined, page: 1 });
+    } else if (key === 'location') {
+      updateParams({ location: undefined, page: 1 });
+    } else if (key === 'remote') {
+      updateParams({ remote: undefined, page: 1 });
+    }
+  };
+
+  const sortOptions: { label: string; value: JobSearchParams['sort'] }[] = [
+    { label: 'Most Recent', value: 'date' },
+    { label: 'Relevance', value: 'relevance' },
+    { label: 'Company Size', value: 'company_size' },
+  ];
+
   return (
-    <div className="min-h-screen bg-gray-950">
-      {/* Header */}
-      <header className="border-b border-gray-800 bg-gray-950/80 backdrop-blur-sm sticky top-0 z-40">
-        <div className="max-w-7xl mx-auto px-4 h-14 flex items-center justify-between">
-          <button onClick={() => navigate('/')} className="flex items-center gap-2 text-white font-semibold">
-            <Briefcase className="w-5 h-5 text-blue-500" />
-            Startup Job Engine
-          </button>
-          <div className="flex items-center gap-3">
-            <Button variant="ghost" size="sm" onClick={() => navigate('/recommendations')} className="text-gray-400 hover:text-white">
-              <Trophy className="w-4 h-4 mr-1" /> Top 10
+    <div className="min-h-screen bg-gray-950 text-gray-100">
+      {/* Top Bar */}
+      <header className="sticky top-0 z-30 bg-gray-950/95 backdrop-blur-sm border-b border-gray-800">
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={() => navigate('/jobs')}
+              className="text-lg font-bold text-blue-500 hover:text-blue-400 transition-colors whitespace-nowrap"
+            >
+              StartupJobs
+            </button>
+            <div className="flex-1">
+              <SearchBar
+                value={params.q ?? ''}
+                onChange={(q) => updateParams({ q, page: 1 })}
+              />
+            </div>
+            <button
+              onClick={() => navigate('/recommendations')}
+              className="hidden sm:inline-flex text-sm text-gray-400 hover:text-gray-200 transition-colors whitespace-nowrap"
+            >
+              Top 10
+            </button>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                logout();
+                navigate('/');
+              }}
+              className="text-gray-500 hover:text-gray-300"
+              title="Log out"
+            >
+              <LogOut className="h-4 w-4" />
             </Button>
-            <Button variant="ghost" size="sm" onClick={logout} className="text-gray-400 hover:text-white">
-              <LogOut className="w-4 h-4" />
+            <Button
+              variant="outline"
+              onClick={() => setShowMobileFilters(!showMobileFilters)}
+              className="lg:hidden border-gray-700 text-gray-400"
+            >
+              <SlidersHorizontal className="h-4 w-4" />
             </Button>
           </div>
+
+          {/* Active Filter Pills */}
+          {activeFilters.length > 0 && (
+            <div className="flex flex-wrap gap-2 mt-3">
+              {activeFilters.map((f, i) => (
+                <span
+                  key={`${f.key}-${f.value}-${i}`}
+                  className="inline-flex items-center gap-1 text-xs bg-blue-500/10 text-blue-400 px-3 py-1.5 rounded-full"
+                >
+                  {f.label}
+                  <button
+                    onClick={() => removeFilter(f.key, f.value)}
+                    className="hover:text-blue-200 transition-colors ml-1"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <button
+                onClick={() =>
+                  updateParams({
+                    funding_stage: undefined,
+                    vc: undefined,
+                    company_size: undefined,
+                    posted_within: undefined,
+                    location: undefined,
+                    remote: undefined,
+                    page: 1,
+                  })
+                }
+                className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                Clear all
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
       <div className="max-w-7xl mx-auto px-4 py-6">
-        {/* Search bar */}
-        <div className="mb-4">
-          <SearchBar value={searchQuery} onChange={setSearchQuery} />
-        </div>
-
-        {/* Active filters + sort */}
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <div className="flex items-center gap-2 flex-wrap">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="border-gray-700 text-gray-300 hover:bg-gray-800 lg:hidden"
-            >
-              <SlidersHorizontal className="w-4 h-4 mr-1" />
-              Filters
-            </Button>
-            {activeFilters.map(f => (
-              <span key={f.key} className="inline-flex items-center gap-1 bg-blue-600/20 text-blue-400 text-xs px-3 py-1 rounded-full border border-blue-500/30">
-                {f.label}
-                <button onClick={() => removeFilter(f.key)} className="hover:text-white">
-                  <X className="w-3 h-3" />
-                </button>
-              </span>
-            ))}
-            {activeFilters.length > 0 && (
-              <button onClick={clearFilters} className="text-xs text-gray-500 hover:text-gray-300">
-                Clear all
-              </button>
-            )}
-          </div>
-          <div className="flex items-center gap-3 text-sm text-gray-400">
-            <span>{total.toLocaleString()} jobs</span>
-            <select
-              value={params.sort}
-              onChange={(e) => updateFilters({ sort: e.target.value as any })}
-              className="bg-gray-900 border border-gray-700 rounded px-2 py-1 text-gray-300 text-sm"
-            >
-              <option value="date">Newest</option>
-              <option value="relevance">Relevance</option>
-              <option value="company_size">Company Size</option>
-            </select>
-          </div>
-        </div>
-
         <div className="flex gap-6">
-          {/* Filter sidebar - desktop */}
-          <aside className={`w-72 shrink-0 ${showFilters ? 'block' : 'hidden'} lg:block`}>
-            <div className="sticky top-20">
+          {/* Sidebar - Desktop */}
+          <aside className="hidden lg:block w-64 flex-shrink-0">
+            <div className="sticky top-24">
               <FilterPanel
                 filters={params}
                 filterOptions={filterOptions}
-                onChange={updateFilters}
-                onClear={clearFilters}
+                onChange={updateParams}
               />
             </div>
           </aside>
 
-          {/* Job list */}
-          <main className="flex-1 min-w-0">
-            {loading ? (
-              <div className="space-y-4">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <div key={i} className="bg-gray-900 border border-gray-800 rounded-xl p-5 animate-pulse">
-                    <div className="h-5 bg-gray-800 rounded w-3/4 mb-3" />
-                    <div className="h-4 bg-gray-800 rounded w-1/2 mb-2" />
-                    <div className="flex gap-2">
-                      <div className="h-6 bg-gray-800 rounded-full w-20" />
-                      <div className="h-6 bg-gray-800 rounded-full w-16" />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : jobs.length === 0 ? (
-              <div className="text-center py-20">
-                <Briefcase className="w-12 h-12 text-gray-700 mx-auto mb-4" />
-                <p className="text-gray-400 text-lg">No jobs found</p>
-                <p className="text-gray-500 text-sm mt-1">Try adjusting your search or filters</p>
-                <Button variant="outline" size="sm" onClick={clearFilters} className="mt-4 border-gray-700 text-gray-300">
-                  Clear Filters
-                </Button>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-3">
-                  {jobs.map(job => (
-                    <JobCard key={job.id} job={job} onClick={() => navigate(`/jobs/${job.id}`)} />
-                  ))}
+          {/* Mobile Filter Drawer */}
+          {showMobileFilters && (
+            <>
+              <div
+                className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+                onClick={() => setShowMobileFilters(false)}
+              />
+              <aside className="fixed inset-y-0 left-0 z-50 w-80 max-w-[85vw] bg-gray-950 border-r border-gray-800 p-6 overflow-y-auto lg:hidden">
+                <div className="flex items-center justify-between mb-6">
+                  <h2 className="text-lg font-semibold text-gray-200">
+                    Filters
+                  </h2>
+                  <button
+                    onClick={() => setShowMobileFilters(false)}
+                    className="text-gray-400 hover:text-gray-200"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
                 </div>
-                {totalPages > 1 && (
-                  <div className="mt-6">
-                    <Pagination
-                      page={page}
-                      totalPages={totalPages}
-                      onPageChange={(p) => setParams(prev => ({ ...prev, page: p }))}
-                    />
-                  </div>
+                <FilterPanel
+                  filters={params}
+                  filterOptions={filterOptions}
+                  onChange={updateParams}
+                />
+              </aside>
+            </>
+          )}
+
+          {/* Main Content */}
+          <main className="flex-1 min-w-0">
+            {/* Result count + sort */}
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-sm text-gray-500">
+                {loading ? (
+                  'Searching...'
+                ) : (
+                  <>
+                    <span className="text-gray-300 font-medium">
+                      {total.toLocaleString()}
+                    </span>{' '}
+                    jobs found
+                  </>
                 )}
-              </>
+              </p>
+              <div className="flex items-center gap-2">
+                <ArrowUpDown className="h-3.5 w-3.5 text-gray-500" />
+                <select
+                  value={params.sort ?? 'date'}
+                  onChange={(e) =>
+                    updateParams({
+                      sort: e.target.value as JobSearchParams['sort'],
+                      page: 1,
+                    })
+                  }
+                  className="bg-transparent text-sm text-gray-400 border-none focus:outline-none focus:ring-0 cursor-pointer"
+                >
+                  {sortOptions.map((opt) => (
+                    <option
+                      key={opt.value}
+                      value={opt.value}
+                      className="bg-gray-900"
+                    >
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Error */}
+            {error && (
+              <div className="p-4 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm mb-4">
+                {error}
+              </div>
+            )}
+
+            {/* Job List */}
+            <div className="space-y-3">
+              {loading
+                ? Array.from({ length: 6 }).map((_, i) => (
+                    <div
+                      key={i}
+                      className="p-5 rounded-xl bg-gray-900 border border-gray-800 animate-pulse"
+                    >
+                      <div className="h-5 w-2/3 bg-gray-800 rounded mb-3" />
+                      <div className="h-4 w-1/3 bg-gray-800 rounded mb-3" />
+                      <div className="flex gap-2">
+                        <div className="h-6 w-20 bg-gray-800 rounded-full" />
+                        <div className="h-6 w-16 bg-gray-800 rounded-full" />
+                        <div className="h-6 w-24 bg-gray-800 rounded-full" />
+                      </div>
+                    </div>
+                  ))
+                : jobs.map((job) => (
+                    <JobCard
+                      key={job.id}
+                      job={job}
+                      onClick={() => navigate(`/jobs/${job.id}`)}
+                    />
+                  ))}
+
+              {!loading && jobs.length === 0 && !error && (
+                <div className="text-center py-16">
+                  <p className="text-gray-500 text-lg">No jobs found</p>
+                  <p className="text-gray-600 text-sm mt-2">
+                    Try adjusting your search or filters
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-8">
+                <Pagination
+                  page={page}
+                  totalPages={totalPages}
+                  onPageChange={(p) => {
+                    updateParams({ page: p });
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }}
+                />
+              </div>
             )}
           </main>
         </div>
-
-        {/* Stats */}
-        {stats && (
-          <div className="mt-8">
-            <StatsBar stats={stats} />
-          </div>
-        )}
       </div>
     </div>
   );
