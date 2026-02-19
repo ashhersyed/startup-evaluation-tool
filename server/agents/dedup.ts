@@ -1,39 +1,42 @@
-import { getDb } from '../db/schema.js';
-import { generateDedupHash, normalizeTitle } from '../scrapers/base.js';
+import { getStore, updateJob, JobRow } from '../db/store.js';
 
 export async function runDedup(): Promise<{ merged: number; deactivated: number }> {
-  const db = getDb();
+  const store = getStore();
   console.log('[Dedup] Starting deduplication pass...');
 
   let merged = 0;
   let deactivated = 0;
 
-  // Find all active jobs grouped by dedup_hash where there are duplicates
-  const duplicateGroups = db.prepare(`
-    SELECT dedup_hash, COUNT(*) as cnt
-    FROM jobs
-    WHERE is_active = 1
-    GROUP BY dedup_hash
-    HAVING cnt > 1
-  `).all() as { dedup_hash: string; cnt: number }[];
+  // Group active jobs by dedup_hash
+  const groups = new Map<string, JobRow[]>();
+  for (const job of Object.values(store.jobs)) {
+    if (job.is_active !== 1) continue;
+    const existing = groups.get(job.dedup_hash) || [];
+    existing.push(job);
+    groups.set(job.dedup_hash, existing);
+  }
 
+  // Find groups with duplicates
+  const duplicateGroups = [...groups.entries()].filter(([_, jobs]) => jobs.length > 1);
   console.log(`[Dedup] Found ${duplicateGroups.length} groups with duplicates`);
 
-  for (const group of duplicateGroups) {
-    const jobs = db.prepare(`
-      SELECT id, title, description, url, source, salary_min, salary_max, posted_at, merged_from
-      FROM jobs
-      WHERE dedup_hash = ? AND is_active = 1
-      ORDER BY
-        CASE WHEN description IS NOT NULL AND LENGTH(description) > 0 THEN 0 ELSE 1 END,
-        CASE WHEN salary_min IS NOT NULL THEN 0 ELSE 1 END,
-        CASE WHEN posted_at IS NOT NULL THEN 0 ELSE 1 END,
-        created_at ASC
-    `).all() as {
-      id: number; title: string; description: string | null; url: string;
-      source: string; salary_min: number | null; salary_max: number | null;
-      posted_at: string | null; merged_from: string;
-    }[];
+  for (const [_, jobs] of duplicateGroups) {
+    // Sort: prefer jobs with description, salary, posted_at, then oldest first
+    jobs.sort((a, b) => {
+      const aDesc = a.description && a.description.length > 0 ? 0 : 1;
+      const bDesc = b.description && b.description.length > 0 ? 0 : 1;
+      if (aDesc !== bDesc) return aDesc - bDesc;
+
+      const aSal = a.salary_min != null ? 0 : 1;
+      const bSal = b.salary_min != null ? 0 : 1;
+      if (aSal !== bSal) return aSal - bSal;
+
+      const aPosted = a.posted_at != null ? 0 : 1;
+      const bPosted = b.posted_at != null ? 0 : 1;
+      if (aPosted !== bPosted) return aPosted - bPosted;
+
+      return a.created_at.localeCompare(b.created_at);
+    });
 
     if (jobs.length < 2) continue;
 
@@ -47,7 +50,6 @@ export async function runDedup(): Promise<{ merged: number; deactivated: number 
       if (!allMergedFrom.includes(other.url)) {
         allMergedFrom.push(other.url);
       }
-      // Also add any previously merged URLs from the duplicate
       const otherMerged = JSON.parse(other.merged_from || '[]') as string[];
       for (const url of otherMerged) {
         if (!allMergedFrom.includes(url)) {
@@ -56,8 +58,7 @@ export async function runDedup(): Promise<{ merged: number; deactivated: number 
       }
     }
 
-    // Update primary with merged data
-    // Take the best description (longest), earliest posted_at, and salary if primary lacks them
+    // Find best data across duplicates
     let bestDescription = primary.description;
     let bestSalaryMin = primary.salary_min;
     let bestSalaryMax = primary.salary_max;
@@ -76,26 +77,20 @@ export async function runDedup(): Promise<{ merged: number; deactivated: number 
       }
     }
 
-    db.prepare(`
-      UPDATE jobs SET
-        merged_from = ?,
-        description = COALESCE(?, description),
-        salary_min = COALESCE(?, salary_min),
-        salary_max = COALESCE(?, salary_max),
-        posted_at = COALESCE(?, posted_at),
-        last_seen_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      JSON.stringify(allMergedFrom),
-      bestDescription, bestSalaryMin, bestSalaryMax, earliestPosted,
-      primary.id
-    );
+    // Update primary with merged data
+    updateJob(primary.id, {
+      merged_from: JSON.stringify(allMergedFrom),
+      description: bestDescription || primary.description,
+      salary_min: bestSalaryMin ?? primary.salary_min,
+      salary_max: bestSalaryMax ?? primary.salary_max,
+      posted_at: earliestPosted || primary.posted_at,
+      last_seen_at: new Date().toISOString().replace('T', ' ').replace('Z', ''),
+    });
 
     // Deactivate duplicates
-    const otherIds = others.map(o => o.id);
-    db.prepare(
-      `UPDATE jobs SET is_active = 0 WHERE id IN (${otherIds.map(() => '?').join(',')})`
-    ).run(...otherIds);
+    for (const other of others) {
+      updateJob(other.id, { is_active: 0 });
+    }
 
     merged += 1;
     deactivated += others.length;

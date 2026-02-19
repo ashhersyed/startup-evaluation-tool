@@ -1,4 +1,10 @@
-import { getDb } from '../db/schema.js';
+import {
+  getStore,
+  findFundingEvent,
+  insertFundingEvent,
+  updateCompany,
+  getJobsByCompany,
+} from '../db/store.js';
 import { upsertCompany } from '../scrapers/base.js';
 import { CareerPageFinder } from '../scrapers/funding/career-page-finder.js';
 import TechCrunchRSSScraper from '../scrapers/funding/techcrunch-rss.js';
@@ -9,7 +15,7 @@ export async function runFundingTracker(): Promise<{
   career_pages_found: number;
   funding_events: number;
 }> {
-  const db = getDb();
+  const store = getStore();
   console.log('[FundingTracker] Starting funding tracker...');
 
   let newCompanies = 0;
@@ -34,29 +40,25 @@ export async function runFundingTracker(): Promise<{
           });
 
           // Check if it's a new company (no jobs yet)
-          const jobCount = db.prepare(
-            'SELECT COUNT(*) as cnt FROM jobs WHERE company_id = ?'
-          ).get(companyId) as { cnt: number };
-
-          if (jobCount.cnt === 0) {
+          const companyJobs = getJobsByCompany(companyId);
+          if (companyJobs.length === 0) {
             newCompanies++;
           } else {
             updatedCompanies++;
           }
 
           // Insert funding event if not exists
-          const existing = db.prepare(
-            'SELECT id FROM funding_events WHERE company_id = ? AND round_type = ? AND (date = ? OR date IS NULL)'
-          ).get(companyId, event.round_type, event.date);
+          const existing = findFundingEvent(companyId, event.round_type, event.date);
 
           if (!existing) {
-            db.prepare(`
-              INSERT INTO funding_events (company_id, round_type, amount, date, investors, source_url)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `).run(
-              companyId, event.round_type, event.amount, event.date,
-              JSON.stringify(event.investors || []), event.source_url
-            );
+            insertFundingEvent({
+              company_id: companyId,
+              round_type: event.round_type,
+              amount: event.amount,
+              date: event.date,
+              investors: JSON.stringify(event.investors || []),
+              source_url: event.source_url,
+            });
             fundingEventsCount++;
           }
         } catch (err: any) {
@@ -78,16 +80,25 @@ export async function runFundingTracker(): Promise<{
   }
 
   // Step 2: Find career pages for recently funded companies without any jobs
-  const recentCompanies = db.prepare(`
-    SELECT DISTINCT c.id, c.name, c.website
-    FROM companies c
-    JOIN funding_events fe ON fe.company_id = c.id
-    LEFT JOIN jobs j ON j.company_id = c.id AND j.is_active = 1
-    WHERE fe.scraped_at > datetime('now', '-7 days')
-    AND j.id IS NULL
-    AND c.website IS NOT NULL
-    LIMIT 20
-  `).all() as { id: number; name: string; website: string | null }[];
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
+  const fundingEvents = Object.values(store.funding_events).filter(
+    fe => fe.scraped_at > sevenDaysAgo
+  );
+
+  // Get unique company IDs from recent funding events
+  const recentCompanyIds = [...new Set(fundingEvents.map(fe => fe.company_id))];
+
+  // Filter to companies with no active jobs and a website
+  const recentCompanies: { id: number; name: string; website: string | null }[] = [];
+  for (const cid of recentCompanyIds) {
+    const company = store.companies[cid];
+    if (!company) continue;
+    const jobs = getJobsByCompany(cid);
+    if (jobs.length === 0 && company.website) {
+      recentCompanies.push({ id: company.id, name: company.name, website: company.website });
+    }
+    if (recentCompanies.length >= 20) break;
+  }
 
   console.log(`[FundingTracker] Checking career pages for ${recentCompanies.length} recently funded companies...`);
 
@@ -98,9 +109,8 @@ export async function runFundingTracker(): Promise<{
       if (pages.length > 0) {
         careerPagesFound++;
         console.log(`[FundingTracker] Found career page for ${company.name}: ${pages[0]}`);
-        // Store the career page URL in company website if not set
         if (!company.website && pages[0]) {
-          db.prepare('UPDATE companies SET website = ? WHERE id = ?').run(pages[0], company.id);
+          updateCompany(company.id, { website: pages[0] });
         }
       }
     } catch (err: any) {

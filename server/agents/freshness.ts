@@ -1,11 +1,11 @@
 import axios from 'axios';
-import { getDb } from '../db/schema.js';
+import { getStore, updateJob, JobRow } from '../db/store.js';
 
 const MAX_CHECKS_PER_RUN = 500;
 const BATCH_SIZE = 20;
 const DELAY_BETWEEN_BATCHES_MS = 2000;
-const STALE_DAYS = 14; // Mark inactive if not seen for 14 days
-const MAX_AGE_DAYS = 60; // Mark inactive if older than 60 days with no re-confirmation
+const STALE_DAYS = 14;
+const MAX_AGE_DAYS = 60;
 
 export async function runFreshnessCheck(): Promise<{
   checked: number;
@@ -13,7 +13,7 @@ export async function runFreshnessCheck(): Promise<{
   deactivated: number;
   errors: number;
 }> {
-  const db = getDb();
+  const store = getStore();
   console.log('[Freshness] Starting freshness check...');
 
   let checked = 0;
@@ -22,15 +22,10 @@ export async function runFreshnessCheck(): Promise<{
   let errors = 0;
 
   // Get active jobs ordered by oldest last_seen_at first
-  const jobs = db.prepare(`
-    SELECT id, url, last_seen_at, posted_at
-    FROM jobs
-    WHERE is_active = 1
-    ORDER BY last_seen_at ASC
-    LIMIT ?
-  `).all(MAX_CHECKS_PER_RUN) as {
-    id: number; url: string; last_seen_at: string; posted_at: string | null;
-  }[];
+  const jobs = Object.values(store.jobs)
+    .filter(j => j.is_active === 1)
+    .sort((a, b) => a.last_seen_at.localeCompare(b.last_seen_at))
+    .slice(0, MAX_CHECKS_PER_RUN);
 
   console.log(`[Freshness] Checking ${jobs.length} jobs...`);
 
@@ -50,19 +45,17 @@ export async function runFreshnessCheck(): Promise<{
             },
           });
 
+          const ts = new Date().toISOString().replace('T', ' ').replace('Z', '');
+
           if (response.status === 200 || response.status === 301 || response.status === 302) {
-            // Still active
-            db.prepare('UPDATE jobs SET last_seen_at = datetime(\'now\') WHERE id = ?').run(job.id);
+            updateJob(job.id, { last_seen_at: ts });
             return 'active';
           } else if (response.status === 404 || response.status === 410) {
-            // Job removed
-            db.prepare('UPDATE jobs SET is_active = 0 WHERE id = ?').run(job.id);
+            updateJob(job.id, { is_active: 0 });
             return 'removed';
           }
-          // Other status codes - keep as is
           return 'unknown';
         } catch {
-          // Network error - don't deactivate, might be temporary
           return 'error';
         }
       })
@@ -86,22 +79,30 @@ export async function runFreshnessCheck(): Promise<{
   }
 
   // Deactivate stale jobs (not seen for STALE_DAYS)
-  const staleResult = db.prepare(`
-    UPDATE jobs SET is_active = 0
-    WHERE is_active = 1
-    AND last_seen_at < datetime('now', '-${STALE_DAYS} days')
-  `).run();
-  const staleDeactivated = staleResult.changes;
+  const staleThreshold = new Date(Date.now() - STALE_DAYS * 86400000).toISOString();
+  let staleDeactivated = 0;
+  for (const job of Object.values(store.jobs)) {
+    if (job.is_active === 1 && job.last_seen_at < staleThreshold) {
+      updateJob(job.id, { is_active: 0 });
+      staleDeactivated++;
+    }
+  }
 
   // Deactivate very old jobs
-  const oldResult = db.prepare(`
-    UPDATE jobs SET is_active = 0
-    WHERE is_active = 1
-    AND posted_at IS NOT NULL
-    AND posted_at < datetime('now', '-${MAX_AGE_DAYS} days')
-    AND last_seen_at < datetime('now', '-7 days')
-  `).run();
-  const oldDeactivated = oldResult.changes;
+  const oldThreshold = new Date(Date.now() - MAX_AGE_DAYS * 86400000).toISOString();
+  const weekThreshold = new Date(Date.now() - 7 * 86400000).toISOString();
+  let oldDeactivated = 0;
+  for (const job of Object.values(store.jobs)) {
+    if (
+      job.is_active === 1 &&
+      job.posted_at != null &&
+      job.posted_at < oldThreshold &&
+      job.last_seen_at < weekThreshold
+    ) {
+      updateJob(job.id, { is_active: 0 });
+      oldDeactivated++;
+    }
+  }
 
   deactivated += staleDeactivated + oldDeactivated;
 

@@ -1,113 +1,120 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db/schema.js';
+import {
+  getAllCompanies,
+  getJobsByCompany,
+  getFundingByCompany,
+} from '../db/store.js';
 
 const router = Router();
 
 // GET /api/recommend - Top 10 company recommendations
 router.get('/', (req: Request, res: Response) => {
   try {
-    const db = getDb();
     const { funding_stage, vc, remote, company_size } = req.query as Record<string, string>;
 
-    let conditions: string[] = [];
-    let params: any[] = [];
+    let companies = getAllCompanies();
 
+    // Pre-filter: only companies with at least 1 active job
+    const companyJobsMap = new Map<number, ReturnType<typeof getJobsByCompany>>();
+    companies = companies.filter(c => {
+      const jobs = getJobsByCompany(c.id);
+      if (jobs.length === 0) return false;
+      companyJobsMap.set(c.id, jobs);
+      return true;
+    });
+
+    // Apply filters
     if (funding_stage) {
-      const stages = funding_stage.split(',').map(s => s.trim());
-      conditions.push(`c.funding_stage IN (${stages.map(() => '?').join(',')})`);
-      params.push(...stages);
+      const stages = funding_stage.split(',').map(s => s.trim().toLowerCase());
+      companies = companies.filter(c =>
+        c.funding_stage != null && stages.includes(c.funding_stage.toLowerCase())
+      );
     }
 
     if (vc) {
       const vcs = vc.split(',').map(v => v.trim().toLowerCase());
-      const vcConditions = vcs.map(() => `LOWER(c.investors) LIKE ?`);
-      conditions.push(`(${vcConditions.join(' OR ')})`);
-      params.push(...vcs.map(v => `%${v}%`));
+      companies = companies.filter(c => {
+        try {
+          const investors = JSON.parse(c.investors || '[]') as string[];
+          const investorsLower = investors.map(i => i.toLowerCase());
+          return vcs.some(v => investorsLower.some(inv => inv.includes(v)));
+        } catch {
+          return false;
+        }
+      });
     }
 
     if (remote === 'true') {
-      conditions.push(`EXISTS (
-        SELECT 1 FROM jobs j2 WHERE j2.company_id = c.id AND j2.is_active = 1 AND j2.remote_type = 'remote'
-      )`);
+      companies = companies.filter(c => {
+        const jobs = companyJobsMap.get(c.id) || [];
+        return jobs.some(j => j.remote_type === 'remote');
+      });
     }
 
     if (company_size) {
       const sizes = company_size.split(',');
-      const sizeConditions: string[] = [];
-      for (const size of sizes) {
-        const [min, max] = size.split('-').map(Number);
-        if (min && max) {
-          sizeConditions.push(`(c.headcount_min >= ? AND c.headcount_max <= ?)`);
-          params.push(min, max);
-        }
-      }
-      if (sizeConditions.length) {
-        conditions.push(`(${sizeConditions.join(' OR ')})`);
-      }
+      companies = companies.filter(c => {
+        return sizes.some(size => {
+          const [min, max] = size.split('-').map(Number);
+          if (min && max) {
+            return (c.headcount_min != null && c.headcount_min >= min) &&
+                   (c.headcount_max != null && c.headcount_max <= max);
+          }
+          return false;
+        });
+      });
     }
 
-    const where = conditions.length > 0 ? 'AND ' + conditions.join(' AND ') : '';
-
-    // Score companies based on:
-    // - active_jobs (25%) - more jobs = more hiring
-    // - funding_recency (25%) - funded recently = growing
-    // - job_freshness (20%) - recent postings
-    // - source_diversity (15%) - found on multiple sources = legit
-    // - data_completeness (15%) - has salary, description, etc.
-    const companies = db.prepare(`
-      SELECT
-        c.*,
-        COUNT(j.id) as active_jobs,
-        AVG(CASE
-          WHEN j.posted_at IS NOT NULL
-          THEN julianday('now') - julianday(j.posted_at)
-          ELSE 30
-        END) as avg_job_age_days,
-        MAX(j.posted_at) as latest_job_posted,
-        SUM(CASE WHEN j.salary_min IS NOT NULL THEN 1 ELSE 0 END) as jobs_with_salary,
-        SUM(CASE WHEN j.description IS NOT NULL AND LENGTH(j.description) > 100 THEN 1 ELSE 0 END) as jobs_with_desc,
-        (SELECT COUNT(DISTINCT j3.source) FROM jobs j3 WHERE j3.company_id = c.id AND j3.is_active = 1) as source_count,
-        (SELECT MAX(fe.date) FROM funding_events fe WHERE fe.company_id = c.id) as latest_funding_date
-      FROM companies c
-      JOIN jobs j ON j.company_id = c.id AND j.is_active = 1
-      WHERE 1=1 ${where}
-      GROUP BY c.id
-      HAVING active_jobs >= 1
-      ORDER BY active_jobs DESC
-      LIMIT 100
-    `).all(...params) as any[];
-
-    // Calculate composite scores
+    // Score each company
     const scored = companies.map(c => {
-      const activeJobsScore = Math.min(c.active_jobs / 20, 1) * 25;
+      const jobs = companyJobsMap.get(c.id) || [];
+      const activeJobs = jobs.length;
 
-      // Funding recency (0-25): higher if funded within last 6 months
+      // Active jobs score (0-25): more jobs = more hiring
+      const activeJobsScore = Math.min(activeJobs / 20, 1) * 25;
+
+      // Funding recency (0-25): funded within last 6 months
       let fundingScore = 0;
-      if (c.latest_funding_date) {
-        const daysSinceFunding = (Date.now() - new Date(c.latest_funding_date).getTime()) / (1000 * 60 * 60 * 24);
+      const fundingEvents = getFundingByCompany(c.id);
+      const latestFundingDate = fundingEvents
+        .filter(fe => fe.date != null)
+        .map(fe => fe.date!)
+        .sort()
+        .pop();
+      if (latestFundingDate) {
+        const daysSinceFunding = (Date.now() - new Date(latestFundingDate).getTime()) / (1000 * 60 * 60 * 24);
         fundingScore = Math.max(0, 1 - daysSinceFunding / 180) * 25;
       }
 
-      // Job freshness (0-20): lower avg age is better
-      const freshnessScore = Math.max(0, 1 - (c.avg_job_age_days || 30) / 60) * 20;
+      // Job freshness (0-20): average age of jobs in days
+      const avgJobAgeDays = jobs.reduce((sum, j) => {
+        if (j.posted_at) {
+          return sum + (Date.now() - new Date(j.posted_at).getTime()) / (1000 * 60 * 60 * 24);
+        }
+        return sum + 30; // default 30 days for unknown
+      }, 0) / (activeJobs || 1);
+      const freshnessScore = Math.max(0, 1 - avgJobAgeDays / 60) * 20;
 
-      // Source diversity (0-15)
-      const sourceScore = Math.min(c.source_count / 4, 1) * 15;
+      // Source diversity (0-15): how many distinct sources
+      const sourceCount = new Set(jobs.map(j => j.source)).size;
+      const sourceScore = Math.min(sourceCount / 4, 1) * 15;
 
-      // Data completeness (0-15)
-      const totalJobs = c.active_jobs || 1;
-      const completeness = ((c.jobs_with_salary / totalJobs) * 0.5 + (c.jobs_with_desc / totalJobs) * 0.5);
+      // Data completeness (0-15): jobs with salary and description
+      const jobsWithSalary = jobs.filter(j => j.salary_min != null).length;
+      const jobsWithDesc = jobs.filter(j => j.description != null && j.description.length > 100).length;
+      const completeness = (jobsWithSalary / (activeJobs || 1)) * 0.5 +
+                            (jobsWithDesc / (activeJobs || 1)) * 0.5;
       const completenessScore = completeness * 15;
 
       const totalScore = activeJobsScore + fundingScore + freshnessScore + sourceScore + completenessScore;
 
-      // Generate reasons
+      // Generate human-readable reasons
       const reasons: string[] = [];
-      if (c.active_jobs >= 10) reasons.push(`Actively hiring with ${c.active_jobs} open roles`);
-      else if (c.active_jobs >= 3) reasons.push(`${c.active_jobs} open positions`);
+      if (activeJobs >= 10) reasons.push(`Actively hiring with ${activeJobs} open roles`);
+      else if (activeJobs >= 3) reasons.push(`${activeJobs} open positions`);
       if (fundingScore > 15) reasons.push('Recently funded — likely in growth mode');
-      if (c.source_count >= 3) reasons.push(`Listed on ${c.source_count} job sources`);
-      if (c.avg_job_age_days < 7) reasons.push('Posting new jobs frequently');
+      if (sourceCount >= 3) reasons.push(`Listed on ${sourceCount} job sources`);
+      if (avgJobAgeDays < 7) reasons.push('Posting new jobs frequently');
       if (c.funding_stage) reasons.push(`${c.funding_stage} stage`);
 
       return {
@@ -117,26 +124,33 @@ router.get('/', (req: Request, res: Response) => {
         },
         score: Math.round(totalScore * 10) / 10,
         reasons,
-        active_jobs_count: c.active_jobs,
+        active_jobs_count: activeJobs,
       };
     });
 
-    // Sort by score and take top 10
+    // Sort by score descending and take top 10
     scored.sort((a, b) => b.score - a.score);
     const top10 = scored.slice(0, 10);
 
-    // Fetch recent jobs for each recommended company
-    for (const rec of top10) {
-      rec.recent_jobs = db.prepare(`
-        SELECT id, title, location, remote_type, posted_at, salary_min, salary_max
-        FROM jobs
-        WHERE company_id = ? AND is_active = 1
-        ORDER BY posted_at DESC NULLS LAST
-        LIMIT 5
-      `).all(rec.company.id) as any[];
-    }
+    // Attach recent jobs for each recommended company
+    const recommendations = top10.map(rec => {
+      const recentJobs = (companyJobsMap.get(rec.company.id) || [])
+        .sort((a, b) => (b.posted_at || '').localeCompare(a.posted_at || ''))
+        .slice(0, 5)
+        .map(j => ({
+          id: j.id,
+          title: j.title,
+          location: j.location,
+          remote_type: j.remote_type,
+          posted_at: j.posted_at,
+          salary_min: j.salary_min,
+          salary_max: j.salary_max,
+        }));
 
-    res.json({ recommendations: top10 });
+      return { ...rec, recent_jobs: recentJobs };
+    });
+
+    res.json({ recommendations });
   } catch (err: any) {
     console.error('[Recommend API] Error:', err.message);
     res.status(500).json({ error: 'Failed to generate recommendations' });

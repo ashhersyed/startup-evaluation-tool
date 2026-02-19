@@ -1,43 +1,53 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db/schema.js';
+import {
+  getActiveJobs,
+  getCompanyById,
+  getAllCompanies,
+  getStats,
+} from '../db/store.js';
 
 const router = Router();
+
+// Canonical funding stage sort order
+const FUNDING_STAGE_ORDER: Record<string, number> = {
+  'Pre-Seed': 1,
+  'Seed': 2,
+  'Series A': 3,
+  'Series B': 4,
+  'Series C': 5,
+  'Series D': 6,
+  'Series E+': 7,
+  'Growth': 8,
+  'Public': 9,
+};
 
 // GET /api/filters - Available filter values
 router.get('/', (_req: Request, res: Response) => {
   try {
-    const db = getDb();
+    const activeJobs = getActiveJobs();
+    const allCompanies = getAllCompanies();
 
-    // Get distinct funding stages
-    const fundingStages = db.prepare(`
-      SELECT DISTINCT c.funding_stage
-      FROM companies c
-      JOIN jobs j ON j.company_id = c.id AND j.is_active = 1
-      WHERE c.funding_stage IS NOT NULL
-      ORDER BY CASE c.funding_stage
-        WHEN 'Pre-Seed' THEN 1
-        WHEN 'Seed' THEN 2
-        WHEN 'Series A' THEN 3
-        WHEN 'Series B' THEN 4
-        WHEN 'Series C' THEN 5
-        WHEN 'Series D' THEN 6
-        WHEN 'Series E+' THEN 7
-        WHEN 'Growth' THEN 8
-        WHEN 'Public' THEN 9
-        ELSE 10
-      END
-    `).all() as { funding_stage: string }[];
+    // Build a set of company IDs that have active jobs
+    const companyIdsWithJobs = new Set(activeJobs.map(j => j.company_id));
 
-    // Get top VCs/investors
-    const companies = db.prepare(`
-      SELECT c.investors
-      FROM companies c
-      JOIN jobs j ON j.company_id = c.id AND j.is_active = 1
-      WHERE c.investors != '[]' AND c.investors IS NOT NULL
-    `).all() as { investors: string }[];
+    // Companies that have at least one active job
+    const companiesWithJobs = allCompanies.filter(c => companyIdsWithJobs.has(c.id));
 
+    // --- Funding stages ---
+    const fundingStageSet = new Set<string>();
+    for (const c of companiesWithJobs) {
+      if (c.funding_stage != null) {
+        fundingStageSet.add(c.funding_stage);
+      }
+    }
+    const fundingStages = Array.from(fundingStageSet).sort(
+      (a, b) => (FUNDING_STAGE_ORDER[a] ?? 10) - (FUNDING_STAGE_ORDER[b] ?? 10)
+    );
+
+    // --- Top VCs / Investors ---
     const vcCounts = new Map<string, number>();
-    for (const c of companies) {
+    for (const c of companiesWithJobs) {
+      if (!c.investors || c.investors === '[]') continue;
       try {
         const investors = JSON.parse(c.investors) as string[];
         for (const inv of investors) {
@@ -53,7 +63,7 @@ router.get('/', (_req: Request, res: Response) => {
       .slice(0, 50)
       .map(([name, count]) => ({ name, count }));
 
-    // Company size ranges
+    // --- Company size ranges (static) ---
     const companySizes = [
       { label: 'Early Stage (1-10)', min: 1, max: 10 },
       { label: 'Small (11-50)', min: 11, max: 50 },
@@ -62,41 +72,43 @@ router.get('/', (_req: Request, res: Response) => {
       { label: 'Enterprise (500+)', min: 500, max: 100000 },
     ];
 
-    // Top locations
-    const locations = db.prepare(`
-      SELECT j.location, COUNT(*) as cnt
-      FROM jobs j
-      WHERE j.is_active = 1 AND j.location IS NOT NULL AND j.location != ''
-      GROUP BY j.location
-      ORDER BY cnt DESC
-      LIMIT 30
-    `).all() as { location: string; cnt: number }[];
+    // --- Top locations ---
+    const locationCounts = new Map<string, number>();
+    for (const j of activeJobs) {
+      if (j.location != null && j.location !== '') {
+        locationCounts.set(j.location, (locationCounts.get(j.location) || 0) + 1);
+      }
+    }
+    const locations = Array.from(locationCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 30)
+      .map(([name, count]) => ({ name, count }));
 
-    // Sources
-    const sources = db.prepare(`
-      SELECT source, COUNT(*) as cnt
-      FROM jobs
-      WHERE is_active = 1
-      GROUP BY source
-      ORDER BY cnt DESC
-    `).all() as { source: string; cnt: number }[];
+    // --- Sources ---
+    const sourceCounts = new Map<string, number>();
+    for (const j of activeJobs) {
+      sourceCounts.set(j.source, (sourceCounts.get(j.source) || 0) + 1);
+    }
+    const sources = Array.from(sourceCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([name, count]) => ({ name, count }));
 
-    // Industries
-    const industries = db.prepare(`
-      SELECT DISTINCT c.industry
-      FROM companies c
-      JOIN jobs j ON j.company_id = c.id AND j.is_active = 1
-      WHERE c.industry IS NOT NULL
-      ORDER BY c.industry
-    `).all() as { industry: string }[];
+    // --- Industries ---
+    const industrySet = new Set<string>();
+    for (const c of companiesWithJobs) {
+      if (c.industry != null) {
+        industrySet.add(c.industry);
+      }
+    }
+    const industries = Array.from(industrySet).sort();
 
     res.json({
-      funding_stages: fundingStages.map(f => f.funding_stage),
+      funding_stages: fundingStages,
       vcs,
       company_sizes: companySizes,
-      locations: locations.map(l => ({ name: l.location, count: l.cnt })),
-      sources: sources.map(s => ({ name: s.source, count: s.cnt })),
-      industries: industries.map(i => i.industry),
+      locations,
+      sources,
+      industries,
     });
   } catch (err: any) {
     console.error('[Filters API] Error:', err.message);
@@ -107,18 +119,7 @@ router.get('/', (_req: Request, res: Response) => {
 // GET /api/stats - Dashboard statistics
 router.get('/stats', (_req: Request, res: Response) => {
   try {
-    const db = getDb();
-
-    const stats = db.prepare(`
-      SELECT
-        (SELECT COUNT(*) FROM jobs WHERE is_active = 1) as total_active_jobs,
-        (SELECT COUNT(DISTINCT company_id) FROM jobs WHERE is_active = 1) as total_companies,
-        (SELECT COUNT(DISTINCT source) FROM jobs WHERE is_active = 1) as sources_count,
-        (SELECT MAX(scraped_at) FROM jobs) as last_updated,
-        (SELECT COUNT(*) FROM jobs WHERE is_active = 1 AND created_at > datetime('now', '-1 day')) as jobs_added_24h,
-        (SELECT COUNT(*) FROM jobs WHERE is_active = 1 AND created_at > datetime('now', '-7 days')) as jobs_added_7d
-    `).get() as any;
-
+    const stats = getStats();
     res.json(stats);
   } catch (err: any) {
     console.error('[Stats API] Error:', err.message);

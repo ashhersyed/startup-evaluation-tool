@@ -1,7 +1,11 @@
 import crypto from 'crypto';
 import axios, { AxiosInstance } from 'axios';
 import * as cheerio from 'cheerio';
-import { getDb } from '../db/schema.js';
+import {
+  findCompanyByName, insertCompany, updateCompany,
+  findJobByHash, insertJob, updateJob,
+  insertScrapeLog,
+} from '../db/store.js';
 
 export interface RawJob {
   title: string;
@@ -175,99 +179,82 @@ export function cleanText(text: string): string {
 // --- Database persistence helpers ---
 
 export function upsertCompany(company: RawCompany): number {
-  const db = getDb();
-
-  const existing = db.prepare(
-    'SELECT id FROM companies WHERE LOWER(name) = LOWER(?) AND (website = ? OR website IS NULL OR ? IS NULL)'
-  ).get(company.name, company.website, company.website) as { id: number } | undefined;
+  const existing = findCompanyByName(company.name, company.website);
 
   if (existing) {
-    db.prepare(`
-      UPDATE companies SET
-        description = COALESCE(?, description),
-        funding_stage = COALESCE(?, funding_stage),
-        total_raised = COALESCE(?, total_raised),
-        last_funding_date = COALESCE(?, last_funding_date),
-        headcount_min = COALESCE(?, headcount_min),
-        headcount_max = COALESCE(?, headcount_max),
-        location = COALESCE(?, location),
-        investors = CASE WHEN ? != '[]' THEN ? ELSE investors END,
-        founded_year = COALESCE(?, founded_year),
-        logo_url = COALESCE(?, logo_url),
-        industry = COALESCE(?, industry),
-        website = COALESCE(?, website),
-        updated_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      company.description, company.funding_stage, company.total_raised,
-      company.last_funding_date, company.headcount_min, company.headcount_max,
-      company.location,
-      JSON.stringify(company.investors || []), JSON.stringify(company.investors || []),
-      company.founded_year, company.logo_url, company.industry,
-      company.website,
-      existing.id
-    );
+    updateCompany(existing.id, {
+      description: company.description || undefined,
+      funding_stage: company.funding_stage || undefined,
+      total_raised: company.total_raised || undefined,
+      last_funding_date: company.last_funding_date || undefined,
+      headcount_min: company.headcount_min || undefined,
+      headcount_max: company.headcount_max || undefined,
+      location: company.location || undefined,
+      investors: (company.investors && company.investors.length > 0) ? JSON.stringify(company.investors) : undefined,
+      founded_year: company.founded_year || undefined,
+      logo_url: company.logo_url || undefined,
+      industry: company.industry || undefined,
+      website: company.website || undefined,
+    } as any);
     return existing.id;
   }
 
-  const result = db.prepare(`
-    INSERT INTO companies (name, website, description, funding_stage, total_raised,
-      last_funding_date, headcount_min, headcount_max, location, investors,
-      founded_year, logo_url, industry, source)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    company.name, company.website, company.description, company.funding_stage,
-    company.total_raised, company.last_funding_date, company.headcount_min,
-    company.headcount_max, company.location, JSON.stringify(company.investors || []),
-    company.founded_year, company.logo_url, company.industry, 'scraper'
-  );
-  return Number(result.lastInsertRowid);
+  return insertCompany({
+    name: company.name,
+    website: company.website || null,
+    description: company.description || null,
+    funding_stage: company.funding_stage || null,
+    total_raised: company.total_raised || null,
+    last_funding_date: company.last_funding_date || null,
+    headcount_min: company.headcount_min || null,
+    headcount_max: company.headcount_max || null,
+    location: company.location || null,
+    investors: JSON.stringify(company.investors || []),
+    founded_year: company.founded_year || null,
+    logo_url: company.logo_url || null,
+    industry: company.industry || null,
+    source: 'scraper',
+  });
 }
 
 export function upsertJob(job: RawJob, companyId: number): { isNew: boolean; jobId: number } {
-  const db = getDb();
   const hash = generateDedupHash(job.company_name, job.title, job.location || '');
   const normalized = normalizeTitle(job.title);
 
-  const existing = db.prepare(
-    'SELECT id, source, merged_from FROM jobs WHERE dedup_hash = ? AND is_active = 1'
-  ).get(hash) as { id: number; source: string; merged_from: string } | undefined;
+  const existing = findJobByHash(hash);
 
   if (existing) {
-    // Merge sources if from different source
     if (existing.source !== job.source) {
       const mergedFrom = JSON.parse(existing.merged_from || '[]') as string[];
       if (!mergedFrom.includes(job.url)) {
         mergedFrom.push(job.url);
-        db.prepare(
-          'UPDATE jobs SET merged_from = ?, last_seen_at = datetime(\'now\') WHERE id = ?'
-        ).run(JSON.stringify(mergedFrom), existing.id);
+        updateJob(existing.id, {
+          merged_from: JSON.stringify(mergedFrom),
+          last_seen_at: new Date().toISOString(),
+        });
       }
     } else {
-      db.prepare(
-        'UPDATE jobs SET last_seen_at = datetime(\'now\') WHERE id = ?'
-      ).run(existing.id);
+      updateJob(existing.id, { last_seen_at: new Date().toISOString() });
     }
     return { isNew: false, jobId: existing.id };
   }
 
-  const result = db.prepare(`
-    INSERT INTO jobs (company_id, title, normalized_title, description, location,
-      remote_type, salary_min, salary_max, salary_currency, url, source, source_id,
-      dedup_hash, posted_at, is_active, merged_from)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, '[]')
-  `).run(
-    companyId, job.title, normalized, job.description, job.location,
-    job.remote_type, job.salary_min, job.salary_max, job.salary_currency || 'USD',
-    job.url, job.source, job.source_id, hash, job.posted_at
-  );
-
-  const jobId = Number(result.lastInsertRowid);
-
-  // Index in FTS
-  db.prepare(
-    'INSERT INTO jobs_fts(rowid, title, description, company_name, location) VALUES (?, ?, ?, ?, ?)'
-  ).run(jobId, job.title, job.description || '', job.company_name, job.location || '');
+  const jobId = insertJob({
+    company_id: companyId,
+    title: job.title,
+    normalized_title: normalized,
+    description: job.description || null,
+    location: job.location || null,
+    remote_type: job.remote_type || null,
+    salary_min: job.salary_min || null,
+    salary_max: job.salary_max || null,
+    salary_currency: job.salary_currency || 'USD',
+    url: job.url,
+    source: job.source,
+    source_id: job.source_id || null,
+    dedup_hash: hash,
+    posted_at: job.posted_at || null,
+  });
 
   return { isNew: true, jobId };
 }
@@ -277,13 +264,14 @@ export function logScrape(
   status: 'success' | 'error' | 'partial',
   stats: { jobs_found?: number; jobs_new?: number; jobs_updated?: number; jobs_deactivated?: number; error_message?: string; duration_ms?: number }
 ): void {
-  const db = getDb();
-  db.prepare(`
-    INSERT INTO scrape_logs (source, status, jobs_found, jobs_new, jobs_updated, jobs_deactivated, error_message, duration_ms)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    source, status,
-    stats.jobs_found || 0, stats.jobs_new || 0, stats.jobs_updated || 0,
-    stats.jobs_deactivated || 0, stats.error_message || null, stats.duration_ms || 0
-  );
+  insertScrapeLog({
+    source,
+    status,
+    jobs_found: stats.jobs_found || 0,
+    jobs_new: stats.jobs_new || 0,
+    jobs_updated: stats.jobs_updated || 0,
+    jobs_deactivated: stats.jobs_deactivated || 0,
+    error_message: stats.error_message || null,
+    duration_ms: stats.duration_ms || 0,
+  });
 }

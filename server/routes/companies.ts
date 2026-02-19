@@ -1,12 +1,16 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db/schema.js';
+import {
+  getAllCompanies,
+  getCompanyById,
+  getJobsByCompany,
+  getFundingByCompany,
+} from '../db/store.js';
 
 const router = Router();
 
 // GET /api/companies - List companies with filters
 router.get('/', (req: Request, res: Response) => {
   try {
-    const db = getDb();
     const {
       funding_stage,
       vc,
@@ -20,88 +24,101 @@ router.get('/', (req: Request, res: Response) => {
 
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
-    const offset = (pageNum - 1) * limitNum;
 
-    let conditions: string[] = [];
-    let params: any[] = [];
+    let companies = getAllCompanies();
 
+    // Precompute active job counts per company
+    const activeJobCounts = new Map<number, number>();
+    for (const c of companies) {
+      activeJobCounts.set(c.id, getJobsByCompany(c.id).length);
+    }
+
+    // Apply filters
     if (funding_stage) {
-      const stages = funding_stage.split(',').map(s => s.trim());
-      conditions.push(`c.funding_stage IN (${stages.map(() => '?').join(',')})`);
-      params.push(...stages);
+      const stages = funding_stage.split(',').map(s => s.trim().toLowerCase());
+      companies = companies.filter(c =>
+        c.funding_stage != null && stages.includes(c.funding_stage.toLowerCase())
+      );
     }
 
     if (vc) {
       const vcs = vc.split(',').map(v => v.trim().toLowerCase());
-      const vcConditions = vcs.map(() => `LOWER(c.investors) LIKE ?`);
-      conditions.push(`(${vcConditions.join(' OR ')})`);
-      params.push(...vcs.map(v => `%${v}%`));
+      companies = companies.filter(c => {
+        try {
+          const investors = JSON.parse(c.investors || '[]') as string[];
+          const investorsLower = investors.map(i => i.toLowerCase());
+          return vcs.some(v => investorsLower.some(inv => inv.includes(v)));
+        } catch {
+          return false;
+        }
+      });
     }
 
     if (company_size) {
       const sizes = company_size.split(',');
-      const sizeConditions: string[] = [];
-      for (const size of sizes) {
-        const [min, max] = size.split('-').map(Number);
-        if (min && max) {
-          sizeConditions.push(`(c.headcount_min >= ? AND c.headcount_max <= ?)`);
-          params.push(min, max);
-        }
-      }
-      if (sizeConditions.length) {
-        conditions.push(`(${sizeConditions.join(' OR ')})`);
-      }
+      companies = companies.filter(c => {
+        return sizes.some(size => {
+          const [min, max] = size.split('-').map(Number);
+          if (min && max) {
+            return (c.headcount_min != null && c.headcount_min >= min) &&
+                   (c.headcount_max != null && c.headcount_max <= max);
+          }
+          return false;
+        });
+      });
     }
 
     if (location) {
-      conditions.push(`LOWER(c.location) LIKE ?`);
-      params.push(`%${location.toLowerCase()}%`);
+      const loc = location.toLowerCase();
+      companies = companies.filter(c =>
+        c.location != null && c.location.toLowerCase().includes(loc)
+      );
     }
 
     if (industry) {
-      conditions.push(`LOWER(c.industry) LIKE ?`);
-      params.push(`%${industry.toLowerCase()}%`);
+      const ind = industry.toLowerCase();
+      companies = companies.filter(c =>
+        c.industry != null && c.industry.toLowerCase().includes(ind)
+      );
     }
 
-    const where = conditions.length > 0 ? 'WHERE ' + conditions.join(' AND ') : '';
-
-    let orderBy: string;
+    // Sort
     switch (sort) {
       case 'name':
-        orderBy = 'ORDER BY c.name ASC';
+        companies.sort((a, b) => a.name.localeCompare(b.name));
         break;
       case 'funded':
-        orderBy = 'ORDER BY c.last_funding_date DESC NULLS LAST';
+        companies.sort((a, b) => {
+          const dateA = a.last_funding_date || '';
+          const dateB = b.last_funding_date || '';
+          return dateB.localeCompare(dateA);
+        });
         break;
       case 'jobs':
       default:
-        orderBy = 'ORDER BY active_jobs DESC, c.name ASC';
+        companies.sort((a, b) => {
+          const jobsDiff = (activeJobCounts.get(b.id) || 0) - (activeJobCounts.get(a.id) || 0);
+          if (jobsDiff !== 0) return jobsDiff;
+          return a.name.localeCompare(b.name);
+        });
     }
 
-    const countResult = db.prepare(`
-      SELECT COUNT(*) as total FROM companies c ${where}
-    `).get(...params) as { total: number };
+    const total = companies.length;
+    const offset = (pageNum - 1) * limitNum;
+    const paged = companies.slice(offset, offset + limitNum);
 
-    const companies = db.prepare(`
-      SELECT c.*,
-        (SELECT COUNT(*) FROM jobs j WHERE j.company_id = c.id AND j.is_active = 1) as active_jobs
-      FROM companies c
-      ${where}
-      ${orderBy}
-      LIMIT ? OFFSET ?
-    `).all(...params, limitNum, offset) as any[];
-
-    const parsed = companies.map(c => ({
+    const parsed = paged.map(c => ({
       ...c,
       investors: JSON.parse(c.investors || '[]'),
+      active_jobs: activeJobCounts.get(c.id) || 0,
     }));
 
     res.json({
       companies: parsed,
-      total: countResult.total,
+      total,
       page: pageNum,
       limit: limitNum,
-      total_pages: Math.ceil(countResult.total / limitNum),
+      total_pages: Math.ceil(total / limitNum),
     });
   } catch (err: any) {
     console.error('[Companies API] Error:', err.message);
@@ -112,28 +129,28 @@ router.get('/', (req: Request, res: Response) => {
 // GET /api/companies/:id - Company detail with all jobs
 router.get('/:id', (req: Request, res: Response) => {
   try {
-    const db = getDb();
-    const company = db.prepare('SELECT * FROM companies WHERE id = ?').get(req.params.id) as any;
+    const company = getCompanyById(parseInt(req.params.id));
 
     if (!company) {
       return res.status(404).json({ error: 'Company not found' });
     }
 
-    company.investors = JSON.parse(company.investors || '[]');
+    const companyResponse = {
+      ...company,
+      investors: JSON.parse(company.investors || '[]'),
+    };
 
-    const jobs = db.prepare(`
-      SELECT * FROM jobs WHERE company_id = ? AND is_active = 1 ORDER BY posted_at DESC
-    `).all(company.id);
+    const jobs = getJobsByCompany(company.id)
+      .sort((a, b) => (b.posted_at || '').localeCompare(a.posted_at || ''));
 
-    const fundingEvents = db.prepare(`
-      SELECT * FROM funding_events WHERE company_id = ? ORDER BY date DESC
-    `).all(company.id) as any[];
+    const fundingEvents = getFundingByCompany(company.id)
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+      .map(fe => ({
+        ...fe,
+        investors: JSON.parse(fe.investors || '[]'),
+      }));
 
-    for (const fe of fundingEvents) {
-      fe.investors = JSON.parse(fe.investors || '[]');
-    }
-
-    res.json({ company, jobs, funding_events: fundingEvents });
+    res.json({ company: companyResponse, jobs, funding_events: fundingEvents });
   } catch (err: any) {
     console.error('[Companies API] Error:', err.message);
     res.status(500).json({ error: 'Failed to fetch company' });

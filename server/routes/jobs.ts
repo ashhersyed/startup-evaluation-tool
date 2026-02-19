@@ -1,12 +1,17 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db/schema.js';
+import {
+  getActiveJobs,
+  getJobById,
+  getCompanyById,
+  getJobsByCompany,
+  searchJobs as searchJobsFTS,
+} from '../db/store.js';
 
 const router = Router();
 
 // GET /api/jobs - List jobs with filters and pagination
 router.get('/', (req: Request, res: Response) => {
   try {
-    const db = getDb();
     const {
       q,
       funding_stage,
@@ -24,149 +29,175 @@ router.get('/', (req: Request, res: Response) => {
 
     const pageNum = Math.max(1, parseInt(page) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(limit) || 20));
-    const offset = (pageNum - 1) * limitNum;
 
-    let conditions: string[] = ['j.is_active = 1'];
-    let params: any[] = [];
-
-    // Full-text search
+    // Start with active jobs (or FTS-matched subset)
+    let matchedIds: Set<number> | null = null;
     if (q && q.trim()) {
-      conditions.push(`j.id IN (
-        SELECT rowid FROM jobs_fts WHERE jobs_fts MATCH ?
-      )`);
-      // FTS5 query: prefix matching with *
-      const ftsQuery = q.trim().split(/\s+/).map(w => `"${w}"*`).join(' ');
-      params.push(ftsQuery);
+      matchedIds = new Set(searchJobsFTS(q.trim()));
     }
 
-    // Funding stage filter
+    let jobs = getActiveJobs();
+
+    // If FTS search was used, narrow to matching jobs
+    if (matchedIds !== null) {
+      jobs = jobs.filter(j => matchedIds!.has(j.id));
+    }
+
+    // Resolve companies for each job (cache to avoid repeated lookups)
+    const companyCache = new Map<number, ReturnType<typeof getCompanyById>>();
+    function getCompanyCached(id: number) {
+      if (!companyCache.has(id)) {
+        companyCache.set(id, getCompanyById(id));
+      }
+      return companyCache.get(id);
+    }
+
+    // Apply filters
     if (funding_stage) {
-      const stages = funding_stage.split(',').map(s => s.trim());
-      conditions.push(`c.funding_stage IN (${stages.map(() => '?').join(',')})`);
-      params.push(...stages);
+      const stages = funding_stage.split(',').map(s => s.trim().toLowerCase());
+      jobs = jobs.filter(j => {
+        const c = getCompanyCached(j.company_id);
+        return c?.funding_stage && stages.includes(c.funding_stage.toLowerCase());
+      });
     }
 
-    // VC/Investor filter
     if (vc) {
       const vcs = vc.split(',').map(v => v.trim().toLowerCase());
-      const vcConditions = vcs.map(() => `LOWER(c.investors) LIKE ?`);
-      conditions.push(`(${vcConditions.join(' OR ')})`);
-      params.push(...vcs.map(v => `%${v}%`));
+      jobs = jobs.filter(j => {
+        const c = getCompanyCached(j.company_id);
+        if (!c) return false;
+        try {
+          const investors = JSON.parse(c.investors || '[]') as string[];
+          const investorsLower = investors.map(i => i.toLowerCase());
+          return vcs.some(v => investorsLower.some(inv => inv.includes(v)));
+        } catch {
+          return false;
+        }
+      });
     }
 
-    // Company size filter
     if (company_size) {
       const sizes = company_size.split(',');
-      const sizeConditions: string[] = [];
-      for (const size of sizes) {
-        const [min, max] = size.split('-').map(Number);
-        if (min && max) {
-          sizeConditions.push(`(c.headcount_min >= ? AND c.headcount_max <= ?)`);
-          params.push(min, max);
-        } else if (size.endsWith('+')) {
-          const threshold = parseInt(size);
-          sizeConditions.push(`c.headcount_min >= ?`);
-          params.push(threshold);
-        }
-      }
-      if (sizeConditions.length > 0) {
-        conditions.push(`(${sizeConditions.join(' OR ')})`);
-      }
+      jobs = jobs.filter(j => {
+        const c = getCompanyCached(j.company_id);
+        if (!c) return false;
+        return sizes.some(size => {
+          if (size.endsWith('+')) {
+            const threshold = parseInt(size);
+            return c.headcount_min != null && c.headcount_min >= threshold;
+          }
+          const [min, max] = size.split('-').map(Number);
+          if (min && max) {
+            return (c.headcount_min != null && c.headcount_min >= min) &&
+                   (c.headcount_max != null && c.headcount_max <= max);
+          }
+          return false;
+        });
+      });
     }
 
-    // Posted within filter
     if (posted_within) {
       const daysMap: Record<string, number> = { '24h': 1, '7d': 7, '30d': 30, '60d': 60 };
       const days = daysMap[posted_within];
       if (days) {
-        conditions.push(`j.posted_at > datetime('now', '-${days} days')`);
+        const cutoff = new Date(Date.now() - days * 86400000).toISOString();
+        jobs = jobs.filter(j => j.posted_at != null && j.posted_at > cutoff);
       }
     }
 
-    // Location filter
     if (location) {
-      conditions.push(`(LOWER(j.location) LIKE ? OR LOWER(c.location) LIKE ?)`);
-      params.push(`%${location.toLowerCase()}%`, `%${location.toLowerCase()}%`);
+      const loc = location.toLowerCase();
+      jobs = jobs.filter(j => {
+        const c = getCompanyCached(j.company_id);
+        return (j.location && j.location.toLowerCase().includes(loc)) ||
+               (c?.location && c.location.toLowerCase().includes(loc));
+      });
     }
 
-    // Remote filter
     if (remote === 'true') {
-      conditions.push(`j.remote_type = 'remote'`);
+      jobs = jobs.filter(j => j.remote_type === 'remote');
     }
 
-    // Source filter
     if (source) {
       const sources = source.split(',').map(s => s.trim());
-      conditions.push(`j.source IN (${sources.map(() => '?').join(',')})`);
-      params.push(...sources);
+      jobs = jobs.filter(j => sources.includes(j.source));
     }
 
-    // Industry filter
     if (industry) {
       const industries = industry.split(',').map(i => i.trim().toLowerCase());
-      const indConditions = industries.map(() => `LOWER(c.industry) LIKE ?`);
-      conditions.push(`(${indConditions.join(' OR ')})`);
-      params.push(...industries.map(i => `%${i}%`));
+      jobs = jobs.filter(j => {
+        const c = getCompanyCached(j.company_id);
+        return c?.industry && industries.some(ind => c.industry!.toLowerCase().includes(ind));
+      });
     }
 
-    const where = conditions.join(' AND ');
-
-    // Sort order
-    let orderBy: string;
+    // Sort
     switch (sort) {
       case 'relevance':
-        orderBy = q ? 'ORDER BY rank' : 'ORDER BY j.posted_at DESC';
+        if (matchedIds !== null) {
+          // searchJobsFTS returns IDs already sorted by relevance
+          const idOrder = searchJobsFTS(q!.trim());
+          const orderMap = new Map(idOrder.map((id, idx) => [id, idx]));
+          jobs.sort((a, b) => (orderMap.get(a.id) ?? Infinity) - (orderMap.get(b.id) ?? Infinity));
+        } else {
+          jobs.sort((a, b) => (b.posted_at || '').localeCompare(a.posted_at || ''));
+        }
         break;
       case 'company_size':
-        orderBy = 'ORDER BY c.headcount_max DESC NULLS LAST, j.posted_at DESC';
+        jobs.sort((a, b) => {
+          const ca = getCompanyCached(a.company_id);
+          const cb = getCompanyCached(b.company_id);
+          const sizeA = ca?.headcount_max ?? -1;
+          const sizeB = cb?.headcount_max ?? -1;
+          if (sizeB !== sizeA) return sizeB - sizeA;
+          return (b.posted_at || '').localeCompare(a.posted_at || '');
+        });
         break;
       case 'date':
       default:
-        orderBy = 'ORDER BY j.posted_at DESC NULLS LAST, j.created_at DESC';
+        jobs.sort((a, b) => {
+          const dateComp = (b.posted_at || '').localeCompare(a.posted_at || '');
+          if (dateComp !== 0) return dateComp;
+          return (b.created_at || '').localeCompare(a.created_at || '');
+        });
     }
 
-    // Get total count
-    const countResult = db.prepare(`
-      SELECT COUNT(*) as total
-      FROM jobs j
-      JOIN companies c ON c.id = j.company_id
-      WHERE ${where}
-    `).get(...params) as { total: number };
+    const total = jobs.length;
+    const offset = (pageNum - 1) * limitNum;
+    const paged = jobs.slice(offset, offset + limitNum);
 
-    // Get jobs with company data
-    const jobs = db.prepare(`
-      SELECT
-        j.*,
-        c.name as company_name,
-        c.website as company_website,
-        c.logo_url as company_logo,
-        c.funding_stage as company_funding_stage,
-        c.headcount_min as company_headcount_min,
-        c.headcount_max as company_headcount_max,
-        c.investors as company_investors,
-        c.location as company_location,
-        c.industry as company_industry,
-        (SELECT COUNT(*) FROM jobs j2 WHERE j2.dedup_hash = j.dedup_hash) as source_count
-      FROM jobs j
-      JOIN companies c ON c.id = j.company_id
-      WHERE ${where}
-      ${orderBy}
-      LIMIT ? OFFSET ?
-    `).all(...params, limitNum, offset) as any[];
+    // Count source duplicates per dedup_hash (for source_count)
+    const allActive = getActiveJobs();
+    const dedupCounts = new Map<string, number>();
+    for (const j of allActive) {
+      dedupCounts.set(j.dedup_hash, (dedupCounts.get(j.dedup_hash) || 0) + 1);
+    }
 
-    // Parse JSON fields
-    const parsedJobs = jobs.map(j => ({
-      ...j,
-      company_investors: JSON.parse(j.company_investors || '[]'),
-      merged_from: JSON.parse(j.merged_from || '[]'),
-    }));
+    // Build response objects with company data
+    const parsedJobs = paged.map(j => {
+      const c = getCompanyCached(j.company_id);
+      return {
+        ...j,
+        company_name: c?.name ?? null,
+        company_website: c?.website ?? null,
+        company_logo: c?.logo_url ?? null,
+        company_funding_stage: c?.funding_stage ?? null,
+        company_headcount_min: c?.headcount_min ?? null,
+        company_headcount_max: c?.headcount_max ?? null,
+        company_investors: c ? JSON.parse(c.investors || '[]') : [],
+        company_location: c?.location ?? null,
+        company_industry: c?.industry ?? null,
+        merged_from: JSON.parse(j.merged_from || '[]'),
+        source_count: dedupCounts.get(j.dedup_hash) || 1,
+      };
+    });
 
     res.json({
       jobs: parsedJobs,
-      total: countResult.total,
+      total,
       page: pageNum,
       limit: limitNum,
-      total_pages: Math.ceil(countResult.total / limitNum),
+      total_pages: Math.ceil(total / limitNum),
     });
   } catch (err: any) {
     console.error('[Jobs API] Error:', err.message);
@@ -177,43 +208,44 @@ router.get('/', (req: Request, res: Response) => {
 // GET /api/jobs/:id - Single job detail
 router.get('/:id', (req: Request, res: Response) => {
   try {
-    const db = getDb();
-    const job = db.prepare(`
-      SELECT
-        j.*,
-        c.name as company_name,
-        c.website as company_website,
-        c.logo_url as company_logo,
-        c.description as company_description,
-        c.funding_stage as company_funding_stage,
-        c.total_raised as company_total_raised,
-        c.headcount_min as company_headcount_min,
-        c.headcount_max as company_headcount_max,
-        c.investors as company_investors,
-        c.location as company_location,
-        c.founded_year as company_founded_year,
-        c.industry as company_industry
-      FROM jobs j
-      JOIN companies c ON c.id = j.company_id
-      WHERE j.id = ?
-    `).get(req.params.id) as any;
+    const job = getJobById(parseInt(req.params.id));
 
     if (!job) {
       return res.status(404).json({ error: 'Job not found' });
     }
 
-    job.company_investors = JSON.parse(job.company_investors || '[]');
-    job.merged_from = JSON.parse(job.merged_from || '[]');
+    const company = getCompanyById(job.company_id);
 
-    // Get related jobs from same company
-    const relatedJobs = db.prepare(`
-      SELECT id, title, location, remote_type, posted_at
-      FROM jobs
-      WHERE company_id = ? AND id != ? AND is_active = 1
-      LIMIT 5
-    `).all(job.company_id, job.id);
+    const jobResponse = {
+      ...job,
+      company_name: company?.name ?? null,
+      company_website: company?.website ?? null,
+      company_logo: company?.logo_url ?? null,
+      company_description: company?.description ?? null,
+      company_funding_stage: company?.funding_stage ?? null,
+      company_total_raised: company?.total_raised ?? null,
+      company_headcount_min: company?.headcount_min ?? null,
+      company_headcount_max: company?.headcount_max ?? null,
+      company_investors: company ? JSON.parse(company.investors || '[]') : [],
+      company_location: company?.location ?? null,
+      company_founded_year: company?.founded_year ?? null,
+      company_industry: company?.industry ?? null,
+      merged_from: JSON.parse(job.merged_from || '[]'),
+    };
 
-    res.json({ job, related_jobs: relatedJobs });
+    // Get related jobs from same company (up to 5, excluding current)
+    const relatedJobs = getJobsByCompany(job.company_id)
+      .filter(j => j.id !== job.id)
+      .slice(0, 5)
+      .map(j => ({
+        id: j.id,
+        title: j.title,
+        location: j.location,
+        remote_type: j.remote_type,
+        posted_at: j.posted_at,
+      }));
+
+    res.json({ job: jobResponse, related_jobs: relatedJobs });
   } catch (err: any) {
     console.error('[Jobs API] Error:', err.message);
     res.status(500).json({ error: 'Failed to fetch job' });

@@ -135,8 +135,7 @@ export async function runScraper(entry: ScraperRegistry): Promise<{
 
     // Handle funding events
     if (result.fundingEvents) {
-      const { getDb } = await import('../db/schema.js');
-      const db = getDb();
+      const { findFundingEvent, insertFundingEvent } = await import('../db/store.js');
       for (const event of result.fundingEvents) {
         try {
           let companyId = companyMap.get(event.company_name.toLowerCase());
@@ -146,16 +145,17 @@ export async function runScraper(entry: ScraperRegistry): Promise<{
           }
 
           // Check if funding event already exists
-          const existing = db.prepare(
-            'SELECT id FROM funding_events WHERE company_id = ? AND round_type = ? AND date = ?'
-          ).get(companyId, event.round_type, event.date);
+          const existing = findFundingEvent(companyId, event.round_type, event.date);
 
           if (!existing) {
-            db.prepare(`
-              INSERT INTO funding_events (company_id, round_type, amount, date, investors, source_url)
-              VALUES (?, ?, ?, ?, ?, ?)
-            `).run(companyId, event.round_type, event.amount, event.date,
-              JSON.stringify(event.investors || []), event.source_url);
+            insertFundingEvent({
+              company_id: companyId,
+              round_type: event.round_type,
+              amount: event.amount,
+              date: event.date,
+              investors: JSON.stringify(event.investors || []),
+              source_url: event.source_url,
+            });
           }
         } catch (err: any) {
           console.error(`[Registry] Failed to upsert funding event for ${event.company_name}:`, err.message);

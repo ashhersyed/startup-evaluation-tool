@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db/schema.js';
+import { getScrapeLogsBySource } from '../db/store.js';
 import { triggerFullScrape, triggerScraper, triggerFreshnessCheck, triggerFundingTracker, triggerDedup } from '../agents/scheduler.js';
 
 const router = Router();
@@ -77,21 +77,10 @@ router.post('/dedup', async (_req: Request, res: Response) => {
 // GET /api/admin/logs - View scrape logs
 router.get('/logs', (req: Request, res: Response) => {
   try {
-    const db = getDb();
     const { source, limit = '50' } = req.query as Record<string, string>;
+    const limitNum = parseInt(limit) || 50;
 
-    let query = 'SELECT * FROM scrape_logs';
-    const params: any[] = [];
-
-    if (source) {
-      query += ' WHERE source = ?';
-      params.push(source);
-    }
-
-    query += ' ORDER BY timestamp DESC LIMIT ?';
-    params.push(parseInt(limit) || 50);
-
-    const logs = db.prepare(query).all(...params);
+    const logs = getScrapeLogsBySource(source || undefined, limitNum);
     res.json({ logs });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

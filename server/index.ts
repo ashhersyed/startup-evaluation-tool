@@ -2,7 +2,7 @@ import express, { Request, Response } from 'express';
 import cors from 'cors';
 import axios from 'axios';
 import { analyzeStartup } from '../lib/analyzer.js';
-import { getDb } from './db/schema.js';
+import { getStore, getStats as getDbStats } from './db/store.js';
 import { startScheduler } from './agents/scheduler.js';
 
 // Import routes
@@ -19,8 +19,8 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Initialize database
-getDb();
+// Initialize store
+getStore();
 
 // Environment variables
 const BEEHIIV_API_KEY = process.env.BEEHIIV_API_KEY;
@@ -41,16 +41,7 @@ app.use('/api/admin', adminRouter);
 // Stats endpoint (also accessible via /api/filters/stats but convenient at top level)
 app.get('/api/stats', (_req: Request, res: Response) => {
   try {
-    const db = getDb();
-    const stats = db.prepare(`
-      SELECT
-        (SELECT COUNT(*) FROM jobs WHERE is_active = 1) as total_active_jobs,
-        (SELECT COUNT(DISTINCT company_id) FROM jobs WHERE is_active = 1) as total_companies,
-        (SELECT COUNT(DISTINCT source) FROM jobs WHERE is_active = 1) as sources_count,
-        (SELECT MAX(scraped_at) FROM jobs) as last_updated,
-        (SELECT COUNT(*) FROM jobs WHERE is_active = 1 AND created_at > datetime('now', '-1 day')) as jobs_added_24h,
-        (SELECT COUNT(*) FROM jobs WHERE is_active = 1 AND created_at > datetime('now', '-7 days')) as jobs_added_7d
-    `).get() as any;
+    const stats = getDbStats();
     res.json(stats);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
