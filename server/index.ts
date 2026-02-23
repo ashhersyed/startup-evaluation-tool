@@ -1,7 +1,6 @@
 import express, { Request, Response } from 'express';
 import cors from 'cors';
 import axios from 'axios';
-import { analyzeStartup } from '../lib/analyzer.js';
 import { getStore, getStats as getDbStats } from './db/store.js';
 import { startScheduler } from './agents/scheduler.js';
 
@@ -91,19 +90,6 @@ app.post('/api/subscribe', async (req: Request, res: Response) => {
     return res.status(500).json({
       message: error.response?.data?.message || 'Failed to subscribe',
     });
-  }
-});
-
-// Legacy analyze endpoint
-app.post('/api/analyze', async (req: Request, res: Response) => {
-  try {
-    const { url } = req.body;
-    if (!url) return res.status(400).json({ message: 'URL is required' });
-    const result = await analyzeStartup(url);
-    return res.status(200).json(result);
-  } catch (error: any) {
-    console.error('Analysis error:', error.message);
-    return res.status(500).json({ message: 'Failed to analyze the website.' });
   }
 });
 
