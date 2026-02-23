@@ -22,19 +22,7 @@
   "crons": [
     {
       "path": "/api/cron?path=scrape",
-      "schedule": "0 */6 * * *"
-    },
-    {
-      "path": "/api/cron?path=freshness",
-      "schedule": "0 */12 * * *"
-    },
-    {
-      "path": "/api/cron?path=funding",
-      "schedule": "0 */4 * * *"
-    },
-    {
-      "path": "/api/cron?path=cleanup",
-      "schedule": "0 3 * * *"
+      "schedule": "0 6 * * *"
     }
   ]
 }
