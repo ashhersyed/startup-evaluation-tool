@@ -1,16 +1,16 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Verify this is a cron request (Vercel sends Authorization header)
+  // Verify this is a cron request
   const authHeader = req.headers.authorization;
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}` && process.env.CRON_SECRET) {
+  if (process.env.CRON_SECRET && authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
 
-  const path = req.url?.replace('/api/cron/', '') || '';
+  const cronPath = (req.query.path as string) || '';
 
   try {
-    switch (path) {
+    switch (cronPath) {
       case 'scrape': {
         const { runAllScrapers } = await import('../server/scrapers/registry.js');
         const { runDedup } = await import('../server/agents/dedup.js');
@@ -43,7 +43,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(404).json({ error: 'Unknown cron job' });
     }
   } catch (err: any) {
-    console.error(`[Cron] Error in ${path}:`, err.message);
+    console.error(`[Cron] Error in ${cronPath}:`, err.message);
     return res.status(500).json({ error: err.message });
   }
 }

@@ -3,6 +3,14 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/api/jobs/:id(\\d+)",
+      "destination": "/api/jobs?id=:id"
+    },
+    {
+      "source": "/api/companies/:id(\\d+)",
+      "destination": "/api/companies?id=:id"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/:path*"
     },
@@ -13,19 +21,19 @@
   ],
   "crons": [
     {
-      "path": "/api/cron/scrape",
+      "path": "/api/cron?path=scrape",
       "schedule": "0 */6 * * *"
     },
     {
-      "path": "/api/cron/freshness",
+      "path": "/api/cron?path=freshness",
       "schedule": "0 */12 * * *"
     },
     {
-      "path": "/api/cron/funding",
+      "path": "/api/cron?path=funding",
       "schedule": "0 */4 * * *"
     },
     {
-      "path": "/api/cron/cleanup",
+      "path": "/api/cron?path=cleanup",
       "schedule": "0 3 * * *"
     }
   ]
