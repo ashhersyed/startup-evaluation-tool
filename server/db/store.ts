@@ -4,8 +4,11 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+const BUNDLED_DIR = path.join(__dirname, '..', '..', 'data');
+const IS_VERCEL = !!process.env.VERCEL;
+const DATA_DIR = IS_VERCEL ? '/tmp' : (process.env.DATA_DIR || BUNDLED_DIR);
 const DB_FILE = path.join(DATA_DIR, 'store.json');
+const BUNDLED_DB = path.join(BUNDLED_DIR, 'store.json');
 
 // --- In-memory data store (JSON-backed, Vercel-compatible) ---
 
@@ -100,6 +103,7 @@ function loadStore(): StoreData {
     fs.mkdirSync(DATA_DIR, { recursive: true });
   } catch {}
 
+  // Try loading from the writable location first (e.g. /tmp on Vercel)
   try {
     if (fs.existsSync(DB_FILE)) {
       const raw = fs.readFileSync(DB_FILE, 'utf-8');
@@ -107,6 +111,17 @@ function loadStore(): StoreData {
       return store!;
     }
   } catch {}
+
+  // On Vercel, fall back to the bundled seed data shipped with the deployment
+  if (IS_VERCEL) {
+    try {
+      if (fs.existsSync(BUNDLED_DB)) {
+        const raw = fs.readFileSync(BUNDLED_DB, 'utf-8');
+        store = JSON.parse(raw);
+        return store!;
+      }
+    } catch {}
+  }
 
   store = {
     companies: {},

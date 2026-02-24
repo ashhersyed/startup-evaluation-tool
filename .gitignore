@@ -28,8 +28,7 @@ dist-ssr
 .env.local
 .env.*.local
 
-# Database
-data/
-*.db
-*.db-wal
-*.db-shm
+# Database (keep data/store.json for Vercel seed data)
+data/*.db
+data/*.db-wal
+data/*.db-shm
