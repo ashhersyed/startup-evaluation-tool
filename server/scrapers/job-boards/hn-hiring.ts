@@ -100,7 +100,7 @@ export default class HNHiringScraper extends BaseScraper {
 
   private parseComment(
     comment: HNCommentsResult['hits'][0],
-    storyId: string
+    _storyId: string
   ): { job: RawJob; company: RawCompany } | null {
     const text = cleanText(comment.comment_text || '');
     if (!text || text.length < 20) return null;

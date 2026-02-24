@@ -72,7 +72,7 @@ export default class SequoiaScraper extends BaseScraper {
     return [];
   }
 
-  private scrapeJobCards($: cheerio.CheerioAPI, jobs: RawJob[], companiesMap: Map<string, RawCompany>): void {
+  private scrapeJobCards($: any, jobs: RawJob[], companiesMap: Map<string, RawCompany>): void {
     const selectors = [
       '[data-testid="job-card"]',
       '.job-card',
@@ -86,7 +86,7 @@ export default class SequoiaScraper extends BaseScraper {
     for (const selector of selectors) {
       const cards = $(selector);
       if (cards.length > 0) {
-        cards.each((_, el) => {
+        cards.each((_: number, el: any) => {
           try {
             const card = $(el);
             const title = cleanText(card.find('h3, h4, [class*="title"], [data-testid="job-title"]').first().text());

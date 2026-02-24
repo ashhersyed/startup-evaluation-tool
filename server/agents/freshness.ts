@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { getStore, updateJob, JobRow } from '../db/store.js';
+import { getStore, updateJob } from '../db/store.js';
 
 const MAX_CHECKS_PER_RUN = 500;
 const BATCH_SIZE = 20;

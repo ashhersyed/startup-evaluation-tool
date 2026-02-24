@@ -1,27 +1,9 @@
 import { BaseScraper, ScraperResult, RawJob, RawCompany, parseRemoteType, cleanText } from '../base.js';
 
-interface AshbyJob {
-  title: string;
-  locationName?: string;
-  employmentType?: string;
-  publishedAt?: string;
-  jobUrl?: string;
-  departmentName?: string;
-  team?: { name: string };
-  location?: { locationName: string };
-}
-
-interface AshbyOrg {
-  name: string;
-  website?: string;
-  logoUrl?: string;
-}
-
 export default class A16zScraper extends BaseScraper {
   name = 'a16z';
 
   private readonly PORTFOLIO_URL = 'https://portfoliojobs.a16z.com/';
-  private readonly ASHBY_API = 'https://jobs.ashbyhq.com/api/non-user-graphql';
 
   async scrape(): Promise<ScraperResult> {
     const jobs: RawJob[] = [];
