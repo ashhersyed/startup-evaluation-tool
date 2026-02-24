@@ -1,6 +1,11 @@
 {
   "buildCommand": "pnpm build",
   "outputDirectory": "dist",
+  "functions": {
+    "api/**/*.ts": {
+      "includeFiles": "data/store.json"
+    }
+  },
   "rewrites": [
     {
       "source": "/api/jobs/:id(\\d+)",

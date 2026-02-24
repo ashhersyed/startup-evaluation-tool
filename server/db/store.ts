@@ -4,11 +4,12 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const BUNDLED_DIR = path.join(__dirname, '..', '..', 'data');
 const IS_VERCEL = !!process.env.VERCEL;
-const DATA_DIR = IS_VERCEL ? '/tmp' : (process.env.DATA_DIR || BUNDLED_DIR);
+const LOCAL_DIR = process.env.DATA_DIR || path.join(__dirname, '..', '..', 'data');
+const DATA_DIR = IS_VERCEL ? '/tmp' : LOCAL_DIR;
 const DB_FILE = path.join(DATA_DIR, 'store.json');
-const BUNDLED_DB = path.join(BUNDLED_DIR, 'store.json');
+// On Vercel, bundled seed data lives relative to cwd (project root)
+const BUNDLED_DB = path.join(process.cwd(), 'data', 'store.json');
 
 // --- In-memory data store (JSON-backed, Vercel-compatible) ---
 
