@@ -165,7 +165,7 @@ export default class TopStartupsScraper extends BaseScraper {
     return companies;
   }
 
-  private extractFromGenericHtml($: cheerio.CheerioAPI, url: string): RawCompany[] {
+  private extractFromGenericHtml($: any, url: string): RawCompany[] {
     const companies: RawCompany[] = [];
 
     // Try to find structured data (JSON-LD)

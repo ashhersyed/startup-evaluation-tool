@@ -22,7 +22,7 @@ export default class InsightScraper extends BaseScraper {
 
   private async scrapeGetroBoard(jobs: RawJob[], companiesMap: Map<string, RawCompany>): Promise<void> {
     // Try the jobs page first, fall back to companies page
-    let $: cheerio.CheerioAPI;
+    let $: any;
     try {
       $ = await this.fetchHtml(`${this.BASE_URL}/jobs`);
     } catch {

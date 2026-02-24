@@ -23,7 +23,7 @@ export default class KleinerScraper extends BaseScraper {
   private async scrapeGetroBoard(jobs: RawJob[], companiesMap: Map<string, RawCompany>): Promise<void> {
     // KP uses a companies page that links to jobs - try the jobs endpoint first
     const jobsUrl = `${this.BASE_URL}/jobs`;
-    let $: cheerio.CheerioAPI;
+    let $: any;
 
     try {
       $ = await this.fetchHtml(jobsUrl);
