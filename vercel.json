@@ -26,8 +26,28 @@
   ],
   "crons": [
     {
-      "path": "/api/cron?path=scrape",
+      "path": "/api/cron?path=scrape-tier1",
       "schedule": "0 6 * * *"
+    },
+    {
+      "path": "/api/cron?path=scrape-tier2a",
+      "schedule": "2 6 * * *"
+    },
+    {
+      "path": "/api/cron?path=scrape-tier2b",
+      "schedule": "3 6 * * *"
+    },
+    {
+      "path": "/api/cron?path=scrape-tier3",
+      "schedule": "4 6 * * *"
+    },
+    {
+      "path": "/api/cron?path=scrape-tier4",
+      "schedule": "6 6 * * *"
+    },
+    {
+      "path": "/api/cron?path=scrape-tier5",
+      "schedule": "8 6 * * *"
     }
   ]
 }
